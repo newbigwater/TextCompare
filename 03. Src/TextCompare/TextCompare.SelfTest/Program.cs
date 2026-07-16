@@ -26,6 +26,7 @@ namespace TextCompare.SelfTest
             RunKeyedListMatcherTests();
             RunPrettyPrinterTests();
             RunStructureDifferEndToEndTests();
+            RunExcludeFilterTests();
 
             Console.WriteLine();
             if (_failures == 0)
@@ -522,6 +523,103 @@ namespace TextCompare.SelfTest
                 Assert(rows.Any(r => r.LeftText != null && r.LeftText.Contains("P1")) &&
                        rows.Any(r => r.RightText != null && r.RightText.Contains("P1")),
                     "P1 항목은 양쪽 모두 존재해야 함(공통 항목 보존 확인)");
+            });
+        }
+
+        private static void RunExcludeFilterTests()
+        {
+            Test("ExcludeFilterSet: 패턴에 일치하는 줄은 좌/우에서 완전히 제거된다", () =>
+            {
+                var left = new List<string> { "# 2024-01-01", "A", "B" };
+                var right = new List<string> { "# 2024-01-02", "A", "X" };
+                var filters = new ExcludeFilterSet { Enabled = true };
+                filters.Patterns.Add(new ExcludeFilterPattern("^#"));
+
+                var doc = DiffDocument.Build(left, right, new DiffOptions { ExcludeFilters = filters });
+
+                Assert(!doc.Rows.Any(r =>
+                    (r.LeftText != null && r.LeftText.StartsWith("#")) ||
+                    (r.RightText != null && r.RightText.StartsWith("#"))),
+                    "제외 패턴에 일치하는 줄은 결과에 전혀 나타나면 안 됨");
+                AssertEqual(2, doc.Rows.Count, "제외된 줄을 뺀 나머지(A,B / A,X)만 남아야 함");
+            });
+
+            Test("ExcludeFilterSet: 매칭 안 되는 패턴은 기존 동작과 동일하다", () =>
+            {
+                var left = new List<string> { "A", "B" };
+                var right = new List<string> { "A", "X" };
+                var filters = new ExcludeFilterSet { Enabled = true };
+                filters.Patterns.Add(new ExcludeFilterPattern("ZZZ_NO_MATCH"));
+
+                var withFilter = DiffDocument.Build(left, right, new DiffOptions { ExcludeFilters = filters });
+                var withoutFilter = DiffDocument.Build(left, right, DiffOptions.Default);
+
+                AssertEqual(withoutFilter.Rows.Count, withFilter.Rows.Count, "행 개수 동일");
+                AssertEqual(withoutFilter.TotalDiffCount, withFilter.TotalDiffCount, "diff 개수 동일");
+            });
+
+            Test("ExcludeFilterPattern: 잘못된 정규식은 예외 없이 무시된다", () =>
+            {
+                var pattern = new ExcludeFilterPattern("(unclosed");
+                Assert(!pattern.IsValid, "잘못된 정규식은 IsValid=false");
+                Assert(!string.IsNullOrEmpty(pattern.ErrorMessage), "에러 메시지가 있어야 함");
+                Assert(!pattern.IsMatch("anything"), "무효 패턴의 IsMatch는 항상 false, 예외를 던지면 안 됨");
+            });
+
+            Test("ExcludeFilterSet: Enabled=false면 패턴이 있어도 제외되지 않는다", () =>
+            {
+                var left = new List<string> { "# comment", "A" };
+                var right = new List<string> { "# comment", "A" };
+                var filters = new ExcludeFilterSet { Enabled = false };
+                filters.Patterns.Add(new ExcludeFilterPattern("^#"));
+
+                var doc = DiffDocument.Build(left, right, new DiffOptions { ExcludeFilters = filters });
+                AssertEqual(2, doc.Rows.Count, "필터 비활성화 시 원본 그대로 2줄 모두 남아야 함");
+            });
+
+            Test("ExcludeFilterSet + IgnoreCase 옵션은 서로 독립적이다", () =>
+            {
+                var left = new List<string> { "HELLO", "A" };
+                var right = new List<string> { "hello", "A" };
+                var filters = new ExcludeFilterSet { Enabled = true };
+                filters.Patterns.Add(new ExcludeFilterPattern("^ZZZ_NEVER_MATCH$")); // HELLO/hello와 무관한 패턴
+
+                var doc = DiffDocument.Build(left, right, new DiffOptions { IgnoreCase = true, ExcludeFilters = filters });
+
+                AssertEqual(2, doc.Rows.Count, "HELLO/hello 줄은 제외 패턴과 무관하게 살아남아야 함");
+                AssertEqual(0, doc.TotalDiffCount, "IgnoreCase 덕분에 HELLO/hello는 동일 취급되어야 함(제외 필터가 이 옵션을 방해하면 안 됨)");
+            });
+
+            Test("DocumentAligner: 필터로 제거된 줄 주변에서도 ghost 정렬이 정상 동작한다", () =>
+            {
+                var left = new List<string> { "A", "#c", "B", "C" };
+                var right = new List<string> { "A", "B", "X" };
+                var filters = new ExcludeFilterSet { Enabled = true };
+                filters.Patterns.Add(new ExcludeFilterPattern("^#"));
+
+                var filtered = DiffDocument.Build(left, right, new DiffOptions { ExcludeFilters = filters });
+                var reference = DiffDocument.Build(new List<string> { "A", "B", "C" }, right, DiffOptions.Default);
+
+                AssertEqual(reference.Rows.Count, filtered.Rows.Count, "필터 적용 결과는 제외 줄이 애초에 없었던 것과 같은 행 수를 가져야 함");
+                for (int i = 0; i < reference.Rows.Count; i++)
+                {
+                    AssertEqual(reference.Rows[i].Kind, filtered.Rows[i].Kind, "행 " + i + " Kind 일치");
+                    AssertEqual(reference.Rows[i].LeftText, filtered.Rows[i].LeftText, "행 " + i + " LeftText 일치");
+                    AssertEqual(reference.Rows[i].RightText, filtered.Rows[i].RightText, "행 " + i + " RightText 일치");
+                }
+            });
+
+            Test("DocumentAligner: 필터 적용 후에도 원본 줄 번호가 보존된다(건너뜀 있음)", () =>
+            {
+                var left = new List<string> { "A", "#c", "B", "C" }; // 원본 줄 번호: A=1, #c=2, B=3, C=4
+                var right = new List<string> { "A", "B", "C" };
+                var filters = new ExcludeFilterSet { Enabled = true };
+                filters.Patterns.Add(new ExcludeFilterPattern("^#"));
+
+                var doc = DiffDocument.Build(left, right, new DiffOptions { ExcludeFilters = filters });
+
+                string leftLineNumbers = string.Join(",", doc.Rows.Where(r => r.LeftLineNo.HasValue).Select(r => r.LeftLineNo.Value));
+                AssertEqual("1,3,4", leftLineNumbers, "좌측 줄 번호는 제외된 2번을 건너뛰고 1,3,4가 되어야 함");
             });
         }
 

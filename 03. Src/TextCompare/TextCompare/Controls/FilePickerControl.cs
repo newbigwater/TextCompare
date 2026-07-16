@@ -12,11 +12,17 @@ namespace TextCompare.Controls
         private const int FixedHeight = 96;
 
         public event EventHandler CompareRequested;
+        public event EventHandler ExcludeFilterEditRequested;
 
         public FilePickerControl()
         {
             InitializeComponent();
             Height = FixedHeight;
+
+            // Designer가 배치한 초기 좌표는 AutoSize 체크박스의 실제 측정 폭을 반영하지 못하므로,
+            // 생성 시점에 실제 폭 기준으로 한 번 더 체이닝 배치한다(NavigationBarControl과 동일한 패턴).
+            _excludeFilterCheck.Location = new Point(_ignoreWhitespaceCheck.Right + 16, 66);
+            _excludeFilterEditButton.Location = new Point(_excludeFilterCheck.Right + 6, 63);
 
             Resize += (s, e) => LayoutRightAlignedControls();
             LayoutRightAlignedControls();
@@ -24,6 +30,11 @@ namespace TextCompare.Controls
             DragDropHelper.WireFileDrop(this, files => AcceptDroppedFiles(files));
             DragDropHelper.WireFileDrop(_leftBox, files => { if (files.Length > 0) LeftPath = files[0]; });
             DragDropHelper.WireFileDrop(_rightBox, files => { if (files.Length > 0) RightPath = files[0]; });
+        }
+
+        private void ExcludeFilterEditButton_Click(object sender, EventArgs e)
+        {
+            if (ExcludeFilterEditRequested != null) ExcludeFilterEditRequested(this, EventArgs.Empty);
         }
 
         private void LeftBrowse_Click(object sender, EventArgs e)
@@ -61,6 +72,12 @@ namespace TextCompare.Controls
         public bool IgnoreWhitespace
         {
             get { return _ignoreWhitespaceCheck.Checked; }
+        }
+
+        public bool ExcludeFilterEnabled
+        {
+            get { return _excludeFilterCheck.Checked; }
+            set { _excludeFilterCheck.Checked = value; }
         }
 
         private void LayoutRightAlignedControls()

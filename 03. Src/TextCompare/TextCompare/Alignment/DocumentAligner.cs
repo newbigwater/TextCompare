@@ -13,6 +13,17 @@ namespace TextCompare.Alignment
     {
         public static List<AlignedRow> Align(IList<string> left, IList<string> right, List<DiffChange> changes)
         {
+            return Align(left, right, changes, null, null);
+        }
+
+        /// <summary>
+        /// leftLineNumbers/rightLineNumbers를 넘기면 a/b 커서 위치 대신 그 배열에서 실제 줄 번호를 조회한다.
+        /// 제외 필터로 일부 줄이 미리 제거된 목록을 넘길 때, 화면에 표시되는 줄 번호가 원본 파일 기준을
+        /// 유지하도록(제외된 만큼 건너뛰도록) 하기 위함이다. null이면 기존과 동일하게 1-based 커서 위치를 사용한다.
+        /// </summary>
+        public static List<AlignedRow> Align(IList<string> left, IList<string> right, List<DiffChange> changes,
+            IList<int> leftLineNumbers, IList<int> rightLineNumbers)
+        {
             if (left == null) throw new ArgumentNullException("left");
             if (right == null) throw new ArgumentNullException("right");
             if (changes == null) throw new ArgumentNullException("changes");
@@ -27,7 +38,7 @@ namespace TextCompare.Alignment
                 // 이 변경 블록 이전의 공통(Same) 구간을 채운다.
                 while (a < change.StartA && b < change.StartB)
                 {
-                    rows.Add(new AlignedRow(RowKind.Same, left[a], right[b], a + 1, b + 1, -1));
+                    rows.Add(new AlignedRow(RowKind.Same, left[a], right[b], LineNo(leftLineNumbers, a), LineNo(rightLineNumbers, b), -1));
                     a++; b++;
                 }
 
@@ -38,21 +49,21 @@ namespace TextCompare.Alignment
                 // 1) 겹치는 부분은 Changed 쌍으로 처리
                 for (int i = 0; i < paired; i++)
                 {
-                    rows.Add(new AlignedRow(RowKind.Changed, left[a], right[b], a + 1, b + 1, blockIndex));
+                    rows.Add(new AlignedRow(RowKind.Changed, left[a], right[b], LineNo(leftLineNumbers, a), LineNo(rightLineNumbers, b), blockIndex));
                     a++; b++;
                 }
 
                 // 2) 남은 삭제분(LeftOnly, 우측 ghost)
                 for (int i = paired; i < countA; i++)
                 {
-                    rows.Add(new AlignedRow(RowKind.LeftOnly, left[a], null, a + 1, null, blockIndex));
+                    rows.Add(new AlignedRow(RowKind.LeftOnly, left[a], null, LineNo(leftLineNumbers, a), null, blockIndex));
                     a++;
                 }
 
                 // 3) 남은 삽입분(RightOnly, 좌측 ghost)
                 for (int i = paired; i < countB; i++)
                 {
-                    rows.Add(new AlignedRow(RowKind.RightOnly, null, right[b], null, b + 1, blockIndex));
+                    rows.Add(new AlignedRow(RowKind.RightOnly, null, right[b], null, LineNo(rightLineNumbers, b), blockIndex));
                     b++;
                 }
 
@@ -63,11 +74,16 @@ namespace TextCompare.Alignment
             // 마지막 변경 이후 남은 공통 구간
             while (a < left.Count && b < right.Count)
             {
-                rows.Add(new AlignedRow(RowKind.Same, left[a], right[b], a + 1, b + 1, -1));
+                rows.Add(new AlignedRow(RowKind.Same, left[a], right[b], LineNo(leftLineNumbers, a), LineNo(rightLineNumbers, b), -1));
                 a++; b++;
             }
 
             return rows;
+        }
+
+        private static int LineNo(IList<int> lineNumbers, int cursor)
+        {
+            return lineNumbers != null ? lineNumbers[cursor] : cursor + 1;
         }
     }
 }
