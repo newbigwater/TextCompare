@@ -1,0 +1,12 @@
+.omc
+
+# WinMerge 참고 소스(별도 저장소, 빌드에 포함되지 않음, 용량 큼)
+03. Src/winmerge/
+
+# Visual Studio / .NET 빌드 산출물
+[Bb]in/
+[Oo]bj/
+.vs/
+
+# 편집 도구가 남긴 낡은 백업 사본(현재 파일 목록과 불일치, 버전관리 대상 아님)
+*.bak
