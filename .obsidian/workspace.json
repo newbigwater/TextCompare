@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "01. Doc/01-아키텍처.md",
+                "file": "01. Doc/08-부록-정규식-입문.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "01-아키텍처"
+              "title": "08-부록-정규식-입문"
             }
           }
         ]
@@ -185,9 +185,9 @@
   },
   "active": "0f79cb10537e4d1a",
   "lastOpenFiles": [
+    "01. Doc/01-아키텍처.md",
     "readme.md",
     "README.md",
-    "01. Doc/01-아키텍처.md",
     "01. Doc/00-개요.md"
   ]
 }

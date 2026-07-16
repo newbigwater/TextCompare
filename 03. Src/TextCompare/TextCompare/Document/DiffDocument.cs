@@ -39,16 +39,38 @@ namespace TextCompare.Document
             get { return Blocks.Count; }
         }
 
-        public static DiffDocument Build(IList<string> left, IList<string> right, DiffOptions options)
+        /// <summary>
+        /// onStage가 주어지면 이 메서드가 실제로 완료한 내부 단계마다 그 이름("filter"/"diff"/"align"/"blocks")을
+        /// 콜백으로 알려준다. 진행율 표시(%)로의 매핑은 호출자가 담당한다 — 이 메서드는 자신이 아는 "실제 단계
+        /// 경계"만 정확히 보고할 뿐, 화면에 몇 %로 보일지는 관여하지 않는다.
+        /// </summary>
+        public static DiffDocument Build(IList<string> left, IList<string> right, DiffOptions options, Action<string> onStage = null)
         {
             if (left == null) throw new ArgumentNullException("left");
             if (right == null) throw new ArgumentNullException("right");
 
-            var hasher = new LineHasher(options ?? DiffOptions.Default);
-            var changes = new MyersDiff<string>(left, right, hasher).Compute();
-            var rows = DocumentAligner.Align(left, right, changes);
+            DiffOptions opts = options ?? DiffOptions.Default;
+            ExcludeFilterSet filters = opts.ExcludeFilters ?? ExcludeFilterSet.Empty;
 
-            return FromRows(rows);
+            // 제외 필터(정규식 매칭 줄)를 비교 전에 좌/우 각각에서 제거한다. 텍스트 라인 비교(Build)에서만
+            // 이 필터를 적용하므로 XML/JSON 구조 비교(StructureDiffer)는 전혀 영향받지 않는다.
+            List<string> filteredLeft, filteredRight;
+            List<int> leftLineNos, rightLineNos;
+            filters.Apply(left, out filteredLeft, out leftLineNos);
+            filters.Apply(right, out filteredRight, out rightLineNos);
+            if (onStage != null) onStage("filter");
+
+            var hasher = new LineHasher(opts);
+            var changes = new MyersDiff<string>(filteredLeft, filteredRight, hasher).Compute();
+            if (onStage != null) onStage("diff");
+
+            var rows = DocumentAligner.Align(filteredLeft, filteredRight, changes, leftLineNos, rightLineNos);
+            if (onStage != null) onStage("align");
+
+            DiffDocument document = FromRows(rows);
+            if (onStage != null) onStage("blocks");
+
+            return document;
         }
 
         /// <summary>이미 정렬된 AlignedRow 목록(예: 구조적 XML/JSON 비교 결과)으로부터 바로 문서를 만든다.

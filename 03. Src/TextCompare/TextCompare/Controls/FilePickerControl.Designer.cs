@@ -22,6 +22,8 @@ namespace TextCompare.Controls
         private System.Windows.Forms.Button _compareButton;
         private System.Windows.Forms.CheckBox _ignoreCaseCheck;
         private System.Windows.Forms.CheckBox _ignoreWhitespaceCheck;
+        private System.Windows.Forms.CheckBox _excludeFilterCheck;
+        private System.Windows.Forms.Button _excludeFilterEditButton;
 
         private void InitializeComponent()
         {
@@ -33,6 +35,8 @@ namespace TextCompare.Controls
             this._rightBrowse = new System.Windows.Forms.Button();
             this._ignoreCaseCheck = new System.Windows.Forms.CheckBox();
             this._ignoreWhitespaceCheck = new System.Windows.Forms.CheckBox();
+            this._excludeFilterCheck = new System.Windows.Forms.CheckBox();
+            this._excludeFilterEditButton = new System.Windows.Forms.Button();
             this._compareButton = new System.Windows.Forms.Button();
             this.SuspendLayout();
             //
@@ -102,6 +106,23 @@ namespace TextCompare.Controls
             this._ignoreWhitespaceCheck.Text = "공백 무시";
             this._ignoreWhitespaceCheck.UseVisualStyleBackColor = true;
             //
+            // _excludeFilterCheck
+            //
+            this._excludeFilterCheck.AutoSize = true;
+            this._excludeFilterCheck.Location = new System.Drawing.Point(352, 66);
+            this._excludeFilterCheck.Name = "_excludeFilterCheck";
+            this._excludeFilterCheck.Text = "제외 필터";
+            this._excludeFilterCheck.UseVisualStyleBackColor = true;
+            //
+            // _excludeFilterEditButton
+            //
+            this._excludeFilterEditButton.Location = new System.Drawing.Point(420, 63);
+            this._excludeFilterEditButton.Name = "_excludeFilterEditButton";
+            this._excludeFilterEditButton.Size = new System.Drawing.Size(60, 23);
+            this._excludeFilterEditButton.Text = "편집...";
+            this._excludeFilterEditButton.UseVisualStyleBackColor = true;
+            this._excludeFilterEditButton.Click += new System.EventHandler(this.ExcludeFilterEditButton_Click);
+            //
             // _compareButton
             //
             this._compareButton.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
@@ -122,6 +143,8 @@ namespace TextCompare.Controls
             this.Controls.Add(this._rightBrowse);
             this.Controls.Add(this._ignoreCaseCheck);
             this.Controls.Add(this._ignoreWhitespaceCheck);
+            this.Controls.Add(this._excludeFilterCheck);
+            this.Controls.Add(this._excludeFilterEditButton);
             this.Controls.Add(this._compareButton);
             this.Name = "FilePickerControl";
             this.Size = new System.Drawing.Size(800, 96);

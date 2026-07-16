@@ -72,52 +72,59 @@ namespace TextCompare.Core
             int max = n + m;
             if (max == 0) return result;
 
+            // 한쪽이 완전히 비어있는 자명한 경우(순수 삽입 또는 순수 삭제)는 편집 스크립트가 이미
+            // 명백하므로 아래 일반 D-loop/역추적을 타지 않고 직접 구성한다. 이 경우 D-loop을 실제로
+            // 실행하지 않으므로 v[]가 전부 0으로 남는데, 이 비어있는 v[]를 일반 역추적 로직에 그대로
+            // 사용하면(과거 버전의 버그) 음수 CountA/CountB가 나오는 잘못된 DiffChange가 만들어진다
+            // (실사례: 동일한 접두/접미 사이에서 문자열 일부가 순수 삭제되는 흔한 실사용 케이스에서 재현됨).
+            if (n == 0)
+            {
+                result.Add(new Edit(EditKind.Right, aLo, bLo, aLo, bHi));
+                return result;
+            }
+            if (m == 0)
+            {
+                result.Add(new Edit(EditKind.Down, aLo, bLo, aHi, bLo));
+                return result;
+            }
+
             int offset = max;
             int size = 2 * max + 1;
             var v = new int[size];
             var trace = new List<int[]>();
 
-            bool found = (n == 0 || m == 0);
+            bool found = false;
             int foundD = 0;
 
-            if (!found)
+            for (int d = 0; d <= max; d++)
             {
-                for (int d = 0; d <= max; d++)
-                {
-                    trace.Add((int[])v.Clone());
-
-                    for (int k = -d; k <= d; k += 2)
-                    {
-                        int x;
-                        if (k == -d || (k != d && v[offset + k - 1] < v[offset + k + 1]))
-                            x = v[offset + k + 1];
-                        else
-                            x = v[offset + k - 1] + 1;
-
-                        int y = x - k;
-
-                        while (x < n && y < m && _comparer.Equals(_a[aLo + x], _b[bLo + y]))
-                        {
-                            x++; y++;
-                        }
-
-                        v[offset + k] = x;
-
-                        if (x >= n && y >= m)
-                        {
-                            found = true;
-                            foundD = d;
-                            break;
-                        }
-                    }
-                    if (found) break;
-                }
-            }
-            else
-            {
-                // n==0 또는 m==0 인 자명한 경우: D = max, trace 한 줄이면 충분.
                 trace.Add((int[])v.Clone());
-                foundD = max;
+
+                for (int k = -d; k <= d; k += 2)
+                {
+                    int x;
+                    if (k == -d || (k != d && v[offset + k - 1] < v[offset + k + 1]))
+                        x = v[offset + k + 1];
+                    else
+                        x = v[offset + k - 1] + 1;
+
+                    int y = x - k;
+
+                    while (x < n && y < m && _comparer.Equals(_a[aLo + x], _b[bLo + y]))
+                    {
+                        x++; y++;
+                    }
+
+                    v[offset + k] = x;
+
+                    if (x >= n && y >= m)
+                    {
+                        found = true;
+                        foundD = d;
+                        break;
+                    }
+                }
+                if (found) break;
             }
 
             // 역추적: (n,m) -> (0,0)

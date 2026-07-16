@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Text;
 using System.Windows.Forms;
@@ -9,6 +10,7 @@ using TextCompare.Controls;
 using TextCompare.Core;
 using TextCompare.Document;
 using TextCompare.IO;
+using TextCompare.Properties;
 using TextCompare.Structure;
 
 namespace TextCompare
@@ -22,6 +24,7 @@ namespace TextCompare
         private Encoding _rightEncoding;
         private bool _isStructureMode;
         private bool _dirty;
+        private ExcludeFilterSet _excludeFilters;
 
         public MainForm() : this(new string[0])
         {
@@ -31,12 +34,15 @@ namespace TextCompare
         {
             InitializeComponent();
 
+            _excludeFilters = ExcludeFilterSettingsAdapter.Load();
+
             _builder = new MainFormBuilder(this);
             _builder
                 .AddFilePicker()
                 .AddNavigationBar()
                 .AddStatusBar()
                 .AddComparisonArea();
+            _builder.FilePicker.ExcludeFilterEnabled = _excludeFilters.Enabled;
 
             WireEvents();
 
@@ -73,6 +79,7 @@ namespace TextCompare
         private void WireEvents()
         {
             _builder.FilePicker.CompareRequested += OnCompareRequested;
+            _builder.FilePicker.ExcludeFilterEditRequested += OnExcludeFilterEditRequested;
             _builder.NavigationBar.PreviousClicked += (s, e) => NavigateRelative(-1);
             _builder.NavigationBar.NextClicked += (s, e) => NavigateRelative(1);
             _builder.LocationPane.LocationClicked += (s, row) =>
@@ -113,11 +120,37 @@ namespace TextCompare
             };
         }
 
+        private void OnExcludeFilterEditRequested(object sender, EventArgs e)
+        {
+            var currentPatterns = new List<string>();
+            foreach (ExcludeFilterPattern pattern in _excludeFilters.Patterns)
+            {
+                currentPatterns.Add(pattern.Pattern);
+            }
+
+            using (var dialog = new ExcludeFilterForm(currentPatterns))
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+                _excludeFilters.Patterns.Clear();
+                foreach (string pattern in dialog.ResultPatterns)
+                {
+                    _excludeFilters.Patterns.Add(new ExcludeFilterPattern(pattern));
+                }
+                ExcludeFilterSettingsAdapter.Save(_excludeFilters);
+            }
+        }
+
         private void ToggleEditMode()
         {
             if (_isStructureMode)
             {
                 MessageBox.Show(this, "XML/JSON 구조 비교 모드에서는 편집을 지원하지 않습니다.", "TextCompare", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            if (_excludeFilters.Enabled && _excludeFilters.Patterns.Count > 0)
+            {
+                MessageBox.Show(this, "제외 필터가 켜진 상태에서는 편집을 지원하지 않습니다. 필터를 끄고 다시 비교한 뒤 편집하세요.", "TextCompare", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             if (_document == null)
@@ -182,6 +215,17 @@ namespace TextCompare
             }
         }
 
+        /// <summary>백그라운드 스레드에서 계산한 비교 결과를 UI 스레드로 넘기기 위한 운반체.</summary>
+        private sealed class CompareResult
+        {
+            public DiffDocument Document;
+            public DiffOptions Options;
+            public bool IsStructureMode;
+            public string ModeLabel;
+            public Encoding LeftEncoding;
+            public Encoding RightEncoding;
+        }
+
         private void OnCompareRequested(object sender, EventArgs e)
         {
             string leftPath = _builder.FilePicker.LeftPath;
@@ -199,72 +243,145 @@ namespace TextCompare
                 return;
             }
 
-            try
+            _excludeFilters.Enabled = _builder.FilePicker.ExcludeFilterEnabled;
+            ExcludeFilterSettingsAdapter.Save(_excludeFilters);
+
+            DiffOptions options = new DiffOptions
             {
-                DiffOptions options = new DiffOptions
+                IgnoreCase = _builder.FilePicker.IgnoreCase,
+                IgnoreWhitespace = _builder.FilePicker.IgnoreWhitespace,
+                ExcludeFilters = _excludeFilters
+            };
+
+            RunCompareWithProgress(leftPath, rightPath, options);
+        }
+
+        /// <summary>
+        /// 비교 연산을 백그라운드 스레드(BackgroundWorker)에서 실행하며, 실제로 완료된 단계마다
+        /// 진행 창(CompareProgressForm)의 진행 사항/진행율을 갱신한다. 모달로 띄우므로 연산 중
+        /// 다른 조작(재클릭 등)은 자연스럽게 막힌다.
+        /// </summary>
+        private void RunCompareWithProgress(string leftPath, string rightPath, DiffOptions options)
+        {
+            using (var progressForm = new CompareProgressForm())
+            using (var worker = new BackgroundWorker { WorkerReportsProgress = true })
+            {
+                worker.DoWork += (s, e) =>
                 {
-                    IgnoreCase = _builder.FilePicker.IgnoreCase,
-                    IgnoreWhitespace = _builder.FilePicker.IgnoreWhitespace
+                    e.Result = ComputeCompareResult(leftPath, rightPath, options, worker);
                 };
 
-                string leftExt = Path.GetExtension(leftPath).ToLowerInvariant();
-                string rightExt = Path.GetExtension(rightPath).ToLowerInvariant();
-                string modeLabel;
-
-                _leftEncoding = null;
-                _rightEncoding = null;
-
-                if (leftExt == ".xml" && rightExt == ".xml")
+                worker.ProgressChanged += (s, e) =>
                 {
-                    _isStructureMode = true;
-                    StructuredNode leftNode = XmlStructureParser.ParseFile(leftPath);
-                    StructuredNode rightNode = XmlStructureParser.ParseFile(rightPath);
-                    List<AlignedRow> rows = StructureDiffer.Diff(leftNode, rightNode, new XmlPrettyPrinter(), options);
-                    _document = DiffDocument.FromRows(rows);
-                    modeLabel = "XML 구조(객체) 비교";
-                }
-                else if (leftExt == ".json" && rightExt == ".json")
+                    progressForm.UpdateProgress(e.ProgressPercentage, (string)e.UserState);
+                };
+
+                worker.RunWorkerCompleted += (s, e) =>
                 {
-                    _isStructureMode = true;
-                    Encoding leftJsonEncoding, rightJsonEncoding;
-                    string leftJsonText = EncodingDetector.ReadAllText(leftPath, out leftJsonEncoding);
-                    string rightJsonText = EncodingDetector.ReadAllText(rightPath, out rightJsonEncoding);
-                    StructuredNode leftNode = JsonStructureParser.Parse(leftJsonText);
-                    StructuredNode rightNode = JsonStructureParser.Parse(rightJsonText);
-                    List<AlignedRow> rows = StructureDiffer.Diff(leftNode, rightNode, new JsonPrettyPrinter(), options);
-                    _document = DiffDocument.FromRows(rows);
-                    modeLabel = "JSON 구조(객체) 비교";
-                }
-                else
-                {
-                    _isStructureMode = false;
-                    string leftText = EncodingDetector.ReadAllText(leftPath, out _leftEncoding);
-                    string rightText = EncodingDetector.ReadAllText(rightPath, out _rightEncoding);
+                    progressForm.Close();
 
-                    List<string> leftLines = LineSplitter.Split(leftText);
-                    List<string> rightLines = LineSplitter.Split(rightText);
+                    if (e.Error != null)
+                    {
+                        MessageBox.Show(this, "비교 중 오류가 발생했습니다: " + e.Error.Message, "TextCompare", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return;
+                    }
 
-                    _document = DiffDocument.Build(leftLines, rightLines, options);
-                    modeLabel = string.Format("텍스트 라인 비교 (Left 인코딩: {0}, Right 인코딩: {1})", _leftEncoding.EncodingName, _rightEncoding.EncodingName);
-                }
+                    ApplyCompareResult((CompareResult)e.Result);
+                };
 
-                _builder.Viewer.SetDocument(_document, options);
-                _builder.LocationPane.Document = _document;
-                _builder.LocationPane.UpdateViewport(0, _builder.Viewer.RowsPerPage);
-                _builder.NavigationBar.SetDiffCount(-1, _document.TotalDiffCount);
-                // 버튼은 항상 클릭 가능하게 두고, 구조 비교 모드에서는 ToggleEditMode() 안의 안내 메시지가 뜨도록 한다.
-                // (비활성화하면 WinForms 특성상 클릭 이벤트 자체가 발생하지 않아 안내 메시지도 못 보고 그냥 죽은 버튼처럼 보임)
-                _builder.NavigationBar.SetEditModeState(false, true);
-                _builder.NavigationBar.SetDirty(false);
-                _builder.PreviewBar.Clear();
-                _dirty = false;
-
-                _builder.StatusLabel.Text = string.Format("차이 {0}개 | {1}", _document.TotalDiffCount, modeLabel);
+                worker.RunWorkerAsync();
+                progressForm.ShowDialog(this);
             }
-            catch (Exception ex)
+        }
+
+        /// <summary>
+        /// 백그라운드 스레드에서 실행된다 — WinForms 컨트롤을 직접 건드리지 않고 worker.ReportProgress로만
+        /// 진행 상황을 알린다(BackgroundWorker가 UI 스레드로 자동 마샬링).
+        /// </summary>
+        private static CompareResult ComputeCompareResult(string leftPath, string rightPath, DiffOptions options, BackgroundWorker worker)
+        {
+            var result = new CompareResult { Options = options };
+
+            string leftExt = Path.GetExtension(leftPath).ToLowerInvariant();
+            string rightExt = Path.GetExtension(rightPath).ToLowerInvariant();
+
+            if (leftExt == ".xml" && rightExt == ".xml")
             {
-                MessageBox.Show(this, "비교 중 오류가 발생했습니다: " + ex.Message, "TextCompare", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                result.IsStructureMode = true;
+                worker.ReportProgress(5, "Left XML 파싱 중...");
+                StructuredNode leftNode = XmlStructureParser.ParseFile(leftPath);
+                worker.ReportProgress(35, "Right XML 파싱 중...");
+                StructuredNode rightNode = XmlStructureParser.ParseFile(rightPath);
+                worker.ReportProgress(55, "구조 비교 연산 중...");
+                List<AlignedRow> rows = StructureDiffer.Diff(leftNode, rightNode, new XmlPrettyPrinter(), options);
+                worker.ReportProgress(90, "결과 구성 중...");
+                result.Document = DiffDocument.FromRows(rows);
+                result.ModeLabel = "XML 구조(객체) 비교";
             }
+            else if (leftExt == ".json" && rightExt == ".json")
+            {
+                result.IsStructureMode = true;
+                worker.ReportProgress(5, "Left JSON 읽는 중...");
+                Encoding leftJsonEncoding, rightJsonEncoding;
+                string leftJsonText = EncodingDetector.ReadAllText(leftPath, out leftJsonEncoding);
+                worker.ReportProgress(20, "Right JSON 읽는 중...");
+                string rightJsonText = EncodingDetector.ReadAllText(rightPath, out rightJsonEncoding);
+                worker.ReportProgress(35, "JSON 파싱 중...");
+                StructuredNode leftNode = JsonStructureParser.Parse(leftJsonText);
+                StructuredNode rightNode = JsonStructureParser.Parse(rightJsonText);
+                worker.ReportProgress(55, "구조 비교 연산 중...");
+                List<AlignedRow> rows = StructureDiffer.Diff(leftNode, rightNode, new JsonPrettyPrinter(), options);
+                worker.ReportProgress(90, "결과 구성 중...");
+                result.Document = DiffDocument.FromRows(rows);
+                result.ModeLabel = "JSON 구조(객체) 비교";
+            }
+            else
+            {
+                result.IsStructureMode = false;
+                worker.ReportProgress(5, "Left 파일 읽는 중...");
+                string leftText = EncodingDetector.ReadAllText(leftPath, out result.LeftEncoding);
+                worker.ReportProgress(20, "Right 파일 읽는 중...");
+                string rightText = EncodingDetector.ReadAllText(rightPath, out result.RightEncoding);
+                worker.ReportProgress(35, "줄 단위 분리 중...");
+                List<string> leftLines = LineSplitter.Split(leftText);
+                List<string> rightLines = LineSplitter.Split(rightText);
+
+                result.Document = DiffDocument.Build(leftLines, rightLines, options, stage =>
+                {
+                    switch (stage)
+                    {
+                        case "filter": worker.ReportProgress(45, "제외 필터 적용 중..."); break;
+                        case "diff": worker.ReportProgress(55, "라인 비교 연산 중..."); break;
+                        case "align": worker.ReportProgress(85, "정렬 처리 중..."); break;
+                        case "blocks": worker.ReportProgress(95, "결과 구성 중..."); break;
+                    }
+                });
+                result.ModeLabel = string.Format("텍스트 라인 비교 (Left 인코딩: {0}, Right 인코딩: {1})", result.LeftEncoding.EncodingName, result.RightEncoding.EncodingName);
+            }
+
+            return result;
+        }
+
+        /// <summary>UI 스레드에서 실행된다(BackgroundWorker.RunWorkerCompleted). 결과를 화면에 반영한다.</summary>
+        private void ApplyCompareResult(CompareResult result)
+        {
+            _isStructureMode = result.IsStructureMode;
+            _leftEncoding = result.LeftEncoding;
+            _rightEncoding = result.RightEncoding;
+            _document = result.Document;
+
+            _builder.Viewer.SetDocument(_document, result.Options);
+            _builder.LocationPane.Document = _document;
+            _builder.LocationPane.UpdateViewport(0, _builder.Viewer.RowsPerPage);
+            _builder.NavigationBar.SetDiffCount(-1, _document.TotalDiffCount);
+            // 버튼은 항상 클릭 가능하게 두고, 구조 비교 모드에서는 ToggleEditMode() 안의 안내 메시지가 뜨도록 한다.
+            // (비활성화하면 WinForms 특성상 클릭 이벤트 자체가 발생하지 않아 안내 메시지도 못 보고 그냥 죽은 버튼처럼 보임)
+            _builder.NavigationBar.SetEditModeState(false, true);
+            _builder.NavigationBar.SetDirty(false);
+            _builder.PreviewBar.Clear();
+            _dirty = false;
+
+            _builder.StatusLabel.Text = string.Format("차이 {0}개 | {1}", _document.TotalDiffCount, result.ModeLabel);
         }
 
         private void NavigateRelative(int direction)

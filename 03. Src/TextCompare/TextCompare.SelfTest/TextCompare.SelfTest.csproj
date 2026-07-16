@@ -58,6 +58,12 @@
     <Compile Include="..\TextCompare\Core\LineSplitter.cs">
       <Link>Core\LineSplitter.cs</Link>
     </Compile>
+    <Compile Include="..\TextCompare\Core\ExcludeFilterPattern.cs">
+      <Link>Core\ExcludeFilterPattern.cs</Link>
+    </Compile>
+    <Compile Include="..\TextCompare\Core\ExcludeFilterSet.cs">
+      <Link>Core\ExcludeFilterSet.cs</Link>
+    </Compile>
     <Compile Include="..\TextCompare\Alignment\RowKind.cs">
       <Link>Alignment\RowKind.cs</Link>
     </Compile>
