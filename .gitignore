@@ -1,0 +1,15 @@
+.omc
+
+# WinMerge 참고 소스(별도 저장소, 빌드에 포함되지 않음, 용량 큼)
+03. Src/winmerge/
+
+# Visual Studio / .NET 빌드 산출물
+[Bb]in/
+[Oo]bj/
+.vs/
+
+# Obsidian 개인 워크스페이스 상태(윈도우 레이아웃 등, 공유 대상 아님)
+.obsidian/
+
+# 편집 도구가 남긴 낡은 백업 사본(현재 파일 목록과 불일치, 버전관리 대상 아님)
+*.bak

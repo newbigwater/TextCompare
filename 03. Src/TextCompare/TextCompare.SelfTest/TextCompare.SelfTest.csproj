@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{AAFDBAFB-ADC1-4D0B-A3B7-9FD49704FA0D}</ProjectGuid>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>TextCompare.SelfTest</RootNamespace>
+    <AssemblyName>TextCompare.SelfTest</AssemblyName>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <FileAlignment>512</FileAlignment>
+    <Deterministic>true</Deterministic>
+    <LangVersion>7.3</LangVersion>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Xml.Linq" />
+    <Reference Include="System.Xml" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\TextCompare\Core\DiffOptions.cs">
+      <Link>Core\DiffOptions.cs</Link>
+    </Compile>
+    <Compile Include="..\TextCompare\Core\DiffChange.cs">
+      <Link>Core\DiffChange.cs</Link>
+    </Compile>
+    <Compile Include="..\TextCompare\Core\MyersDiff.cs">
+      <Link>Core\MyersDiff.cs</Link>
+    </Compile>
+    <Compile Include="..\TextCompare\Core\LineHasher.cs">
+      <Link>Core\LineHasher.cs</Link>
+    </Compile>
+    <Compile Include="..\TextCompare\Core\LineSplitter.cs">
+      <Link>Core\LineSplitter.cs</Link>
+    </Compile>
+    <Compile Include="..\TextCompare\Alignment\RowKind.cs">
+      <Link>Alignment\RowKind.cs</Link>
+    </Compile>
+    <Compile Include="..\TextCompare\Alignment\AlignedRow.cs">
+      <Link>Alignment\AlignedRow.cs</Link>
+    </Compile>
+    <Compile Include="..\TextCompare\Alignment\DocumentAligner.cs">
+      <Link>Alignment\DocumentAligner.cs</Link>
+    </Compile>
+    <Compile Include="..\TextCompare\Intraline\CharSpan.cs">
+      <Link>Intraline\CharSpan.cs</Link>
+    </Compile>
+    <Compile Include="..\TextCompare\Intraline\IntralineDiffer.cs">
+      <Link>Intraline\IntralineDiffer.cs</Link>
+    </Compile>
+    <Compile Include="..\TextCompare\Document\DiffBlock.cs">
+      <Link>Document\DiffBlock.cs</Link>
+    </Compile>
+    <Compile Include="..\TextCompare\Document\DiffDocument.cs">
+      <Link>Document\DiffDocument.cs</Link>
+    </Compile>
+    <Compile Include="..\TextCompare\IO\EncodingDetector.cs">
+      <Link>IO\EncodingDetector.cs</Link>
+    </Compile>
+    <Compile Include="..\TextCompare\Structure\StructuredNode.cs">
+      <Link>Structure\StructuredNode.cs</Link>
+    </Compile>
+    <Compile Include="..\TextCompare\Structure\StructureEquality.cs">
+      <Link>Structure\StructureEquality.cs</Link>
+    </Compile>
+    <Compile Include="..\TextCompare\Structure\XmlStructureParser.cs">
+      <Link>Structure\XmlStructureParser.cs</Link>
+    </Compile>
+    <Compile Include="..\TextCompare\Structure\JsonStructureParser.cs">
+      <Link>Structure\JsonStructureParser.cs</Link>
+    </Compile>
+    <Compile Include="..\TextCompare\Structure\IStructurePrettyPrinter.cs">
+      <Link>Structure\IStructurePrettyPrinter.cs</Link>
+    </Compile>
+    <Compile Include="..\TextCompare\Structure\XmlPrettyPrinter.cs">
+      <Link>Structure\XmlPrettyPrinter.cs</Link>
+    </Compile>
+    <Compile Include="..\TextCompare\Structure\JsonPrettyPrinter.cs">
+      <Link>Structure\JsonPrettyPrinter.cs</Link>
+    </Compile>
+    <Compile Include="..\TextCompare\Structure\NodeKeyStrategy.cs">
+      <Link>Structure\NodeKeyStrategy.cs</Link>
+    </Compile>
+    <Compile Include="..\TextCompare\Structure\KeyedListMatcher.cs">
+      <Link>Structure\KeyedListMatcher.cs</Link>
+    </Compile>
+    <Compile Include="..\TextCompare\Structure\StructureDiffer.cs">
+      <Link>Structure\StructureDiffer.cs</Link>
+    </Compile>
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>
