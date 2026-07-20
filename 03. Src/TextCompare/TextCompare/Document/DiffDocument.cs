@@ -52,19 +52,20 @@ namespace TextCompare.Document
             DiffOptions opts = options ?? DiffOptions.Default;
             ExcludeFilterSet filters = opts.ExcludeFilters ?? ExcludeFilterSet.Empty;
 
-            // 제외 필터(정규식 매칭 줄)를 비교 전에 좌/우 각각에서 제거한다. 텍스트 라인 비교(Build)에서만
-            // 이 필터를 적용하므로 XML/JSON 구조 비교(StructureDiffer)는 전혀 영향받지 않는다.
-            List<string> filteredLeft, filteredRight;
-            List<int> leftLineNos, rightLineNos;
-            filters.Apply(left, out filteredLeft, out leftLineNos);
-            filters.Apply(right, out filteredRight, out rightLineNos);
+            // 제외 필터를 비교 전에 좌/우 각각에 적용한다. ExcludeLine 패턴에 걸린 줄은 목록에서 제거되고,
+            // MaskMatch 패턴의 매치 구간은 센티널 문자로 치환된 "비교용 줄"(ComparisonLines)로만 diff 판정에
+            // 반영된다 — 화면에는 원문(Lines)이 그대로 표시된다. 텍스트 라인 비교(Build)에서만 이 필터를
+            // 적용하므로 XML/JSON 구조 비교(StructureDiffer)는 전혀 영향받지 않는다.
+            ExcludeFilterSet.FilterApplyResult fl = filters.Apply(left);
+            ExcludeFilterSet.FilterApplyResult fr = filters.Apply(right);
             if (onStage != null) onStage("filter");
 
             var hasher = new LineHasher(opts);
-            var changes = new MyersDiff<string>(filteredLeft, filteredRight, hasher).Compute();
+            var changes = new MyersDiff<string>(fl.ComparisonLines, fr.ComparisonLines, hasher).Compute();
             if (onStage != null) onStage("diff");
 
-            var rows = DocumentAligner.Align(filteredLeft, filteredRight, changes, leftLineNos, rightLineNos);
+            var rows = DocumentAligner.Align(fl.Lines, fr.Lines, changes,
+                fl.OriginalLineNumbers, fr.OriginalLineNumbers, fl.MaskSpans, fr.MaskSpans);
             if (onStage != null) onStage("align");
 
             DiffDocument document = FromRows(rows);
