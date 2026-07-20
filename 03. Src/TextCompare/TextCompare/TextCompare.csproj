@@ -11,14 +11,16 @@
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
-    <Deterministic>true</Deterministic>
+    <Deterministic>false</Deterministic>
+    <SolutionDir Condition="'$(SolutionDir)' == '' Or '$(SolutionDir)' == '*Undefined*'">..\</SolutionDir>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <PlatformTarget>AnyCPU</PlatformTarget>
     <DebugSymbols>true</DebugSymbols>
     <DebugType>full</DebugType>
     <Optimize>false</Optimize>
-    <OutputPath>bin\Debug\</OutputPath>
+    <OutputPath>$(SolutionDir)\..\..\build\$(Platform)$(Configuration)\</OutputPath>
+    <IntermediateOutputPath>$(SolutionDir)\..\..\output\$(Platform)$(Configuration)\$(AssemblyName)\</IntermediateOutputPath>
     <DefineConstants>DEBUG;TRACE</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
@@ -27,7 +29,8 @@
     <PlatformTarget>AnyCPU</PlatformTarget>
     <DebugType>pdbonly</DebugType>
     <Optimize>true</Optimize>
-    <OutputPath>bin\Release\</OutputPath>
+    <OutputPath>$(SolutionDir)\..\..\build\$(Platform)$(Configuration)\</OutputPath>
+    <IntermediateOutputPath>$(SolutionDir)\..\..\output\$(Platform)$(Configuration)\$(AssemblyName)\</IntermediateOutputPath>
     <DefineConstants>TRACE</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
@@ -175,4 +178,8 @@
     </None>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <!-- PostBuildEvent는 $(TargetName)/$(TargetPath) 등이 정의되는 Microsoft.CSharp.targets import 이후에 두어야 매크로가 확장된다. -->
+  <PropertyGroup>
+    <PostBuildEvent>if /I "$(ConfigurationName)" == "Release" call "..\..\BuildInfo.bat" $(Platform) $(Configuration) ..\..\build\$(Platform)$(Configuration)\ $(TargetName) $(TargetExt) "$(TargetPath)"</PostBuildEvent>
+  </PropertyGroup>
 </Project>

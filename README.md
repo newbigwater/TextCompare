@@ -43,8 +43,27 @@ TextCompare는 (1)을 **ghost-line 정렬**로, (2)를 **자연 키(natural key)
 
 Visual Studio 2019 이상(또는 해당 MSBuild)과 .NET Framework 4.8 개발자 팩이 필요하다.
 
+- **배치 빌드(권장)**: 저장소 루트에서 `BuildAll.bat` 실행. vswhere로 MSBuild를 자동 탐색해 Release 전체 리빌드 → SelfTest 실행 → `artifact\` 생성까지 수행한다. 성공 시 exit code 0, 실패 시 1 (CI 친화적, `pause` 없음).
 - **Visual Studio**: `03. Src/TextCompare/TextCompare.sln` 열고 빌드.
 - **CLI**: [빌드 및 테스트 문서](01.%20Doc/06-빌드-및-테스트.md) 참고 (Git Bash에서 MSBuild 호출 시 주의사항 포함).
+
+#### 배치 빌드 시스템 구성
+
+| 경로 | 내용 |
+|---|---|
+| `BuildAll.bat` | 전체 빌드 진입점 (Rebuild → SelfTest → git log 이력 기록) |
+| `BuildInfo.bat` | Release PostBuildEvent에서 호출됨. 빌드된 exe의 FileVersion을 읽어 artifact 스테이징 + `TextCompare.buildInfo.txt` 생성 |
+| `build\<Platform><Config>\` | 최종 바이너리 (예: `build\AnyCPURelease\`) |
+| `output\<Platform><Config>\<어셈블리명>\` | obj 중간 산출물 |
+| `artifact\<Platform><Config>\` | 배포물: `TextCompare.exe`, `TextCompare.exe.config`, `TextCompare.buildInfo.txt` |
+| `artifact\history.TextCompare.txt` | `git log` 이력 |
+
+버전 관리: 메인 프로젝트는 `AssemblyVersion("1.0.*")` 와일드카드(+ `Deterministic=false`)로 빌드 시각 기반 `1.0.<build>.<revision>` 버전이 자동 생성되며, `BuildInfo.bat`이 이를 buildInfo.txt에 기록한다.
+
+주의사항:
+
+- 이 저장소의 프로젝트는 출력 경로가 `bin\`이 아니라 저장소 루트의 `build\`로 설정되어 있다. VS에서 Debug(F5) 실행 시에도 `build\AnyCPUDebug\`에서 실행된다.
+- 일부 PC에는 `Platform` 환경변수가 설정되어 있어 MSBuild의 `Platform` 프로퍼티와 충돌한다. `BuildAll.bat`은 이를 `set Platform=`으로 제거하고 `/p:Platform="Any CPU"`를 명시한다. CLI에서 직접 빌드할 때도 동일하게 명시할 것.
 
 ### 사용법
 
