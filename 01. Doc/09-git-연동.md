@@ -77,6 +77,41 @@ TextCompare.exe [플래그] [<left> <right>]
 - `$LOCAL`(이전 버전)은 git이 만든 임시 파일이므로 `/wl`로 편집을 차단한다 — 편집해도 저장할 곳이 없다.
 - 해제(`UnregisterDifftool`)는 `diff.tool`의 현재 값이 `textcompare`일 때만 지워서 **다른 도구 설정을 보호**하고, `difftool.textcompare` 섹션은 통째로 제거한다.
 
+## TortoiseGit 연동
+
+git 명령줄 대신 TortoiseGit을 쓰는 경우, 위의 `git config` 기반 difftool 등록과 별개로 **TortoiseGit 자체 설정(Settings)에 외부 도구로 등록**해야 한다.
+
+실행 파일 경로는 배치 빌드의 배포 산출물인 고정 경로를 쓴다:
+
+```
+D:\50. Utility\Compare\artifact\AnyCPURelease\TextCompare.exe
+```
+
+`build\` 아래 경로(특히 Debug)는 브랜치 작업·재빌드로 내용이 바뀌거나 깨질 수 있어 등록용으로 부적합하다. `artifact\AnyCPURelease\`는 `BuildAll.bat`(Release)이 만드는 배포 위치로, 재빌드 시 같은 자리에 갱신되므로 등록 경로가 유지된다([[06-빌드-및-테스트]] 참고).
+
+### Advanced diff settings (권장 — 비교 용도)
+
+Settings → **Diff Viewer** → **Advanced** 탭 → `Add...`로 확장자(`.tpml`, `.xml`, `.json`)마다 등록하고, Program에 다음을 입력한다:
+
+```
+"D:\50. Utility\Compare\artifact\AnyCPURelease\TextCompare.exe" /dl %bname /dr %yname /e /u /wl %base %mine
+```
+
+- `%base`/`%mine` = 이전 버전/현재 버전 파일, `%bname`/`%yname` = 각 제목 — TortoiseGit이 실행 시점에 치환한다.
+- `/wl` → 왼쪽(이전 버전, git이 만든 임시 파일)은 읽기 전용, `/e` → `Esc` 한 번으로 닫기. difftool 등록 cmd와 동일한 플래그 조합이다.
+- `.xml`/`.json`은 확장자 분기에 따라 자동으로 구조(객체) 비교 모드로 열린다. `.tpml`은 내용이 XML이라도 확장자 기준 분기 때문에 **텍스트 라인 비교**로 동작한다.
+
+### Advanced merge settings (제한적 — 2-way 대용)
+
+TextCompare는 2-way 비교 도구라서 `%merged` `%theirs` `%mine` `%base` 4개를 받는 **3-way 병합은 지원하지 않는다**. 다만 "충돌 시 상대 버전을 보면서 작업 파일을 직접 고치는" 2-way 방식으로는 등록할 수 있다 (Settings → **Merge Tool** → **Advanced**):
+
+```
+"D:\50. Utility\Compare\artifact\AnyCPURelease\TextCompare.exe" /dl %tname /dr %mname /e /wl %theirs %merged
+```
+
+- 왼쪽 = 상대방 버전(`%theirs`, 읽기 전용), 오른쪽 = 병합 대상 작업 파일(`%merged`) → 편집 모드에서 수정 후 `Ctrl+S`로 저장한다.
+- 저장 후 TortoiseGit에서 **Resolved 표시는 직접** 해야 한다 — TextCompare는 병합 완료를 TortoiseGit에 알리지 못한다.
+
 ## 앱 내 "HEAD와 비교" 흐름
 
 `FilePickerControl`의 `git ▾` 드롭다운 → `GitCompareWithHeadRequested` 이벤트 → `MainForm.OnGitCompareWithHeadRequested`:
