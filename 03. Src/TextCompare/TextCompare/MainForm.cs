@@ -122,20 +122,14 @@ namespace TextCompare
 
         private void OnExcludeFilterEditRequested(object sender, EventArgs e)
         {
-            var currentPatterns = new List<string>();
-            foreach (ExcludeFilterPattern pattern in _excludeFilters.Patterns)
-            {
-                currentPatterns.Add(pattern.Pattern);
-            }
-
-            using (var dialog = new ExcludeFilterForm(currentPatterns))
+            using (var dialog = new ExcludeFilterForm(_excludeFilters.Patterns))
             {
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
 
                 _excludeFilters.Patterns.Clear();
-                foreach (string pattern in dialog.ResultPatterns)
+                foreach (ExcludeFilterPattern pattern in dialog.ResultPatterns)
                 {
-                    _excludeFilters.Patterns.Add(new ExcludeFilterPattern(pattern));
+                    _excludeFilters.Patterns.Add(pattern);
                 }
                 ExcludeFilterSettingsAdapter.Save(_excludeFilters);
             }
@@ -148,9 +142,11 @@ namespace TextCompare
                 MessageBox.Show(this, "XML/JSON 구조 비교 모드에서는 편집을 지원하지 않습니다.", "TextCompare", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
-            if (_excludeFilters.Enabled && _excludeFilters.Patterns.Count > 0)
+            // "라인 전체 제외" 패턴은 줄을 물리적으로 제거해 편집·저장 라운드트립이 불가능하므로 편집을 막는다.
+            // "매치 부분만 제외"(MaskMatch)만 있으면 줄이 모두 보존되므로 편집해도 안전하다.
+            if (_excludeFilters.HasLineExclusions)
             {
-                MessageBox.Show(this, "제외 필터가 켜진 상태에서는 편집을 지원하지 않습니다. 필터를 끄고 다시 비교한 뒤 편집하세요.", "TextCompare", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show(this, "'라인 전체 제외' 패턴이 켜진 상태에서는 편집을 지원하지 않습니다. 필터를 끄거나 '매치 부분만 제외' 모드로 바꾸고 다시 비교한 뒤 편집하세요.", "TextCompare", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             if (_document == null)

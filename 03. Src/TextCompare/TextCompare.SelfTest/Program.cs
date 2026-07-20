@@ -27,6 +27,7 @@ namespace TextCompare.SelfTest
             RunPrettyPrinterTests();
             RunStructureDifferEndToEndTests();
             RunExcludeFilterTests();
+            RunMaskFilterTests();
 
             Console.WriteLine();
             if (_failures == 0)
@@ -620,6 +621,162 @@ namespace TextCompare.SelfTest
 
                 string leftLineNumbers = string.Join(",", doc.Rows.Where(r => r.LeftLineNo.HasValue).Select(r => r.LeftLineNo.Value));
                 AssertEqual("1,3,4", leftLineNumbers, "좌측 줄 번호는 제외된 2번을 건너뛰고 1,3,4가 되어야 함");
+            });
+        }
+
+        private static void RunMaskFilterTests()
+        {
+            Test("MaskMatch: 매치 부분만 다른 두 줄은 Same으로 판정되고 원문·마스크 좌표가 보존된다", () =>
+            {
+                var left = new List<string> { "<item address=\"aaa\" name=\"n\"/>" };
+                var right = new List<string> { "<item address=\"bbb\" name=\"n\"/>" };
+                var filters = new ExcludeFilterSet { Enabled = true };
+                filters.Patterns.Add(new ExcludeFilterPattern("address=\"[^\"]*\"", ExcludeFilterMode.MaskMatch));
+
+                var doc = DiffDocument.Build(left, right, new DiffOptions { ExcludeFilters = filters });
+
+                AssertEqual(1, doc.Rows.Count, "줄은 제거되지 않고 1행이 남아야 함");
+                AssertEqual(RowKind.Same, doc.Rows[0].Kind, "마스크 구간만 다르므로 Same이어야 함");
+                AssertEqual(0, doc.TotalDiffCount, "diff 개수 0");
+                AssertEqual("<item address=\"aaa\" name=\"n\"/>", doc.Rows[0].LeftText, "화면용 원문은 마스킹되지 않아야 함");
+                Assert(doc.Rows[0].LeftMaskSpans != null && doc.Rows[0].LeftMaskSpans.Length == 1, "좌측 마스크 스팬 1개");
+                AssertEqual(6, doc.Rows[0].LeftMaskSpans[0].Start, "마스크 시작 위치");
+                AssertEqual(13, doc.Rows[0].LeftMaskSpans[0].Length, "마스크 길이");
+            });
+
+            Test("MaskMatch: 매치가 한쪽에만 있으면 Same이 되면 안 된다", () =>
+            {
+                var left = new List<string> { "<t addr=\"x\">" };
+                var right = new List<string> { "<t>" };
+                var filters = new ExcludeFilterSet { Enabled = true };
+                filters.Patterns.Add(new ExcludeFilterPattern("addr=\"[^\"]*\"", ExcludeFilterMode.MaskMatch));
+
+                var doc = DiffDocument.Build(left, right, new DiffOptions { ExcludeFilters = filters });
+
+                AssertEqual(1, doc.TotalDiffCount, "센티널 문자 덕분에 여전히 다름으로 판정되어야 함");
+                AssertEqual(RowKind.Changed, doc.Rows[0].Kind, "Changed여야 함");
+            });
+
+            Test("MaskMatch: 매치 개수가 다르면 Changed로 판정된다", () =>
+            {
+                var left = new List<string> { "a=1 b=2" };
+                var right = new List<string> { "a=9" };
+                var filters = new ExcludeFilterSet { Enabled = true };
+                filters.Patterns.Add(new ExcludeFilterPattern("\\d+", ExcludeFilterMode.MaskMatch));
+
+                var doc = DiffDocument.Build(left, right, new DiffOptions { ExcludeFilters = filters });
+                AssertEqual(RowKind.Changed, doc.Rows[0].Kind, "매치 개수(2 vs 1)가 다르므로 Changed여야 함");
+            });
+
+            Test("MaskMatch: 겹치는 여러 패턴의 매치 구간은 병합된다", () =>
+            {
+                var left = new List<string> { "xabbcy" };
+                var right = new List<string> { "xabcy" };
+                var filters = new ExcludeFilterSet { Enabled = true };
+                filters.Patterns.Add(new ExcludeFilterPattern("ab+", ExcludeFilterMode.MaskMatch));
+                filters.Patterns.Add(new ExcludeFilterPattern("b+c", ExcludeFilterMode.MaskMatch));
+
+                var doc = DiffDocument.Build(left, right, new DiffOptions { ExcludeFilters = filters });
+
+                AssertEqual(RowKind.Same, doc.Rows[0].Kind, "마스크 병합 후 양쪽 비교용 줄이 같아 Same이어야 함");
+                Assert(doc.Rows[0].LeftMaskSpans != null && doc.Rows[0].LeftMaskSpans.Length == 1, "겹친 두 매치는 1개 스팬으로 병합");
+                AssertEqual(1, doc.Rows[0].LeftMaskSpans[0].Start, "병합 스팬 시작(abbc)");
+                AssertEqual(4, doc.Rows[0].LeftMaskSpans[0].Length, "병합 스팬 길이(abbc)");
+            });
+
+            Test("ExcludeLine + MaskMatch 혼합: 줄 제거·줄 번호 건너뜀과 부분 마스킹이 함께 동작한다", () =>
+            {
+                var left = new List<string> { "A", "#c", "B time=5", "C" };
+                var right = new List<string> { "A", "B time=9", "C" };
+                var filters = new ExcludeFilterSet { Enabled = true };
+                filters.Patterns.Add(new ExcludeFilterPattern("^#", ExcludeFilterMode.ExcludeLine));
+                filters.Patterns.Add(new ExcludeFilterPattern("time=\\d+", ExcludeFilterMode.MaskMatch));
+
+                var doc = DiffDocument.Build(left, right, new DiffOptions { ExcludeFilters = filters });
+
+                AssertEqual(0, doc.TotalDiffCount, "time 차이는 마스크로 무시되어 diff 0이어야 함");
+                AssertEqual(3, doc.Rows.Count, "#c 제거 후 3행");
+                string leftLineNumbers = string.Join(",", doc.Rows.Where(r => r.LeftLineNo.HasValue).Select(r => r.LeftLineNo.Value));
+                AssertEqual("1,3,4", leftLineNumbers, "제거된 2번을 건너뛴 원본 줄 번호 유지");
+            });
+
+            Test("MaskMatch + IgnoreCase: 마스킹 후 정규화가 적용된다(마스킹 먼저, 정규화 나중)", () =>
+            {
+                var left = new List<string> { "Hello time=1" };
+                var right = new List<string> { "HELLO time=2" };
+                var filters = new ExcludeFilterSet { Enabled = true };
+                filters.Patterns.Add(new ExcludeFilterPattern("time=\\d+", ExcludeFilterMode.MaskMatch));
+
+                var doc = DiffDocument.Build(left, right, new DiffOptions { IgnoreCase = true, ExcludeFilters = filters });
+                AssertEqual(0, doc.TotalDiffCount, "마스크(time) + IgnoreCase(Hello/HELLO)로 완전 동일 판정이어야 함");
+            });
+
+            Test("IntralineDiffer: 마스크 구간과 겹치는 문자 단위 차이는 강조되지 않는다(클리핑)", () =>
+            {
+                var left = new List<string> { "name=\"a\" id=1" };
+                var right = new List<string> { "name=\"b\" id=2" };
+                var filters = new ExcludeFilterSet { Enabled = true };
+                filters.Patterns.Add(new ExcludeFilterPattern("id=\\d", ExcludeFilterMode.MaskMatch));
+
+                var doc = DiffDocument.Build(left, right, new DiffOptions { ExcludeFilters = filters });
+                var row = doc.Rows[0];
+                AssertEqual(RowKind.Changed, row.Kind, "마스크 밖(a/b) 차이 때문에 Changed여야 함");
+                Assert(row.LeftMaskSpans != null, "좌측 마스크 스팬 존재");
+
+                var spans = IntralineDiffer.ComputeLeftSpans(row.LeftText, row.RightText, row.LeftMaskSpans);
+                foreach (var span in spans.Where(s => s.IsDifferent))
+                {
+                    foreach (var mask in row.LeftMaskSpans)
+                    {
+                        Assert(span.Start + span.Length <= mask.Start || span.Start >= mask.End,
+                            "IsDifferent 스팬(" + span.Start + "," + span.Length + ")이 마스크 구간과 겹치면 안 됨");
+                    }
+                }
+                Assert(spans.Any(s => s.IsDifferent), "마스크 밖의 진짜 차이(a/b)는 여전히 강조되어야 함");
+
+                int covered = spans.Sum(s => s.Length);
+                AssertEqual(row.LeftText.Length, covered, "클리핑 후에도 스팬들이 라인 전체를 빈틈없이 덮어야 함(렌더러 계약)");
+            });
+
+            Test("MaskMatch: 잘못된 정규식 패턴은 예외 없이 무시된다", () =>
+            {
+                var left = new List<string> { "A", "B" };
+                var right = new List<string> { "A", "X" };
+                var filters = new ExcludeFilterSet { Enabled = true };
+                filters.Patterns.Add(new ExcludeFilterPattern("(unclosed", ExcludeFilterMode.MaskMatch));
+
+                var doc = DiffDocument.Build(left, right, new DiffOptions { ExcludeFilters = filters });
+                AssertEqual(1, doc.TotalDiffCount, "무효 패턴은 무시되고 기존 비교와 동일해야 함");
+                Assert(doc.Rows.All(r => r.LeftMaskSpans == null && r.RightMaskSpans == null), "무효 패턴은 마스크 스팬을 만들면 안 됨");
+            });
+
+            Test("MaskMatch: Enabled=false면 마스킹되지 않는다", () =>
+            {
+                var left = new List<string> { "time=1" };
+                var right = new List<string> { "time=2" };
+                var filters = new ExcludeFilterSet { Enabled = false };
+                filters.Patterns.Add(new ExcludeFilterPattern("time=\\d+", ExcludeFilterMode.MaskMatch));
+
+                var doc = DiffDocument.Build(left, right, new DiffOptions { ExcludeFilters = filters });
+                AssertEqual(1, doc.TotalDiffCount, "필터 비활성 시 time 차이는 그대로 diff여야 함");
+                Assert(doc.Rows.All(r => r.LeftMaskSpans == null && r.RightMaskSpans == null), "마스크 스팬이 없어야 함");
+            });
+
+            Test("HasLineExclusions: ExcludeLine 패턴이 있을 때만 true(편집 모드 게이트)", () =>
+            {
+                var maskOnly = new ExcludeFilterSet { Enabled = true };
+                maskOnly.Patterns.Add(new ExcludeFilterPattern("x", ExcludeFilterMode.MaskMatch));
+                Assert(!maskOnly.HasLineExclusions, "MaskMatch만 있으면 false(편집 허용)");
+
+                var withLine = new ExcludeFilterSet { Enabled = true };
+                withLine.Patterns.Add(new ExcludeFilterPattern("x", ExcludeFilterMode.MaskMatch));
+                withLine.Patterns.Add(new ExcludeFilterPattern("^#"));
+                Assert(withLine.HasLineExclusions, "ExcludeLine 패턴이 있으면 true(편집 차단)");
+                AssertEqual(ExcludeFilterMode.ExcludeLine, withLine.Patterns[1].Mode, "1-인자 생성자의 기본 모드는 ExcludeLine(하위호환)");
+
+                var disabled = new ExcludeFilterSet { Enabled = false };
+                disabled.Patterns.Add(new ExcludeFilterPattern("^#"));
+                Assert(!disabled.HasLineExclusions, "Enabled=false면 항상 false");
             });
         }
 

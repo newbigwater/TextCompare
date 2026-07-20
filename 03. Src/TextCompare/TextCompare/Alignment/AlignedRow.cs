@@ -1,3 +1,5 @@
+using TextCompare.Core;
+
 namespace TextCompare.Alignment
 {
     /// <summary>
@@ -15,7 +17,19 @@ namespace TextCompare.Alignment
         /// <summary>같은 Changed 블록에 속한 행들을 그룹핑하기 위한 diff 블록 인덱스. Same 행은 -1.</summary>
         public readonly int DiffBlockIndex;
 
+        /// <summary>제외 필터(MaskMatch)가 비교에서 무시한 좌측 텍스트 구간(원문 좌표). 없으면 null.</summary>
+        public readonly TextSpan[] LeftMaskSpans;
+
+        /// <summary>제외 필터(MaskMatch)가 비교에서 무시한 우측 텍스트 구간(원문 좌표). 없으면 null.</summary>
+        public readonly TextSpan[] RightMaskSpans;
+
         public AlignedRow(RowKind kind, string leftText, string rightText, int? leftLineNo, int? rightLineNo, int diffBlockIndex)
+            : this(kind, leftText, rightText, leftLineNo, rightLineNo, diffBlockIndex, null, null)
+        {
+        }
+
+        public AlignedRow(RowKind kind, string leftText, string rightText, int? leftLineNo, int? rightLineNo, int diffBlockIndex,
+            TextSpan[] leftMaskSpans, TextSpan[] rightMaskSpans)
         {
             Kind = kind;
             LeftText = leftText;
@@ -23,6 +37,8 @@ namespace TextCompare.Alignment
             LeftLineNo = leftLineNo;
             RightLineNo = rightLineNo;
             DiffBlockIndex = diffBlockIndex;
+            LeftMaskSpans = leftMaskSpans;
+            RightMaskSpans = rightMaskSpans;
         }
 
         public bool IsLeftGhost { get { return LeftLineNo == null; } }
