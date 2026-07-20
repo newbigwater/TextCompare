@@ -9,6 +9,8 @@ C# / .NET Framework 4.8 / WinForms 기반의 텍스트·XML·JSON 비교 프로�
 - [Manual](#manual)
   - [빌드](#빌드)
   - [사용법](#사용법)
+  - [git 연동](#git-연동)
+  - [명령줄 옵션](#명령줄-옵션)
   - [단축키](#단축키)
 - [문서](#문서)
   - [설계서](#설계서)
@@ -32,6 +34,7 @@ TextCompare는 (1)을 **ghost-line 정렬**로, (2)를 **자연 키(natural key)
 - 실시간 편집 모드(입력 후 자동 재비교) + 저장(원본 인코딩 유지)
 - 대소문자/공백 무시 옵션
 - UTF-8(BOM 유무)/UTF-16/CP949(EUC-KR) 자동 인코딩 감지
+- **git 연동**: `git difftool` 외부 도구 등록(원클릭), 앱 내 "HEAD와 비교"로 작업 중 수정 내용 즉시 검토, WinMerge 스타일 명령줄 옵션(`/dl` `/dr` `/e` `/wl` 등)
 
 ## Manual
 
@@ -53,6 +56,45 @@ Visual Studio 2019 이상(또는 해당 MSBuild)과 .NET Framework 4.8 개발자
 4. 텍스트 비교 모드에서 `편집 모드` 버튼을 누르면 직접 내용을 수정할 수 있다. 입력을 멈추면 자동으로 재비교되며, `Ctrl+S` 또는 `저장` 버튼으로 원본 인코딩 그대로 저장한다.
    - XML/JSON 구조 비교 모드에서는 편집을 지원하지 않는다(버튼을 누르면 안내 메시지가 표시된다).
 
+### git 연동
+
+WinMerge의 [버전 관리 연동](https://manual.winmerge.org/en/Version_control.html)과 같은 방식으로, git과 함께 수정 내용을 검토할 수 있다.
+
+**① 앱 내 "HEAD와 비교"** — 상단 `git ▾` 버튼 → `HEAD와 비교`:
+
+1. 비교할 파일을 Left 또는 Right 칸에 지정한다(git 저장소 안의 파일).
+2. `git ▾ → HEAD와 비교`를 누르면 마지막 커밋(HEAD) 버전이 왼쪽(읽기 전용, `HEAD: 파일명` 라벨), 현재 작업본이 오른쪽에 놓여 즉시 비교된다.
+3. HEAD 버전은 임시 파일로 추출되며 앱 종료 시 자동 삭제된다. 파일이 저장소 밖이거나, 아직 커밋된 적이 없거나, git이 설치되어 있지 않으면 각각 안내 메시지가 표시된다.
+
+**② git difftool로 사용** — `git ▾ → git difftool로 등록` (또는 `TextCompare.exe /register-git`):
+
+전역 git 설정(`git config --global`)에 difftool로 등록된다. 이후 저장소에서:
+
+```bash
+git difftool          # 수정된 파일을 하나씩 TextCompare로 검토
+git difftool HEAD~3   # 3커밋 전과 비교
+```
+
+왼쪽에 "이전 버전"(읽기 전용), 오른쪽에 "작업본"이 라벨로 표시되고, `Esc` 한 번으로 창을 닫고 다음 파일로 넘어간다. 등록 해제는 `git ▾ → git difftool 등록 해제` 또는 `/unregister-git`.
+
+### 명령줄 옵션
+
+```
+TextCompare.exe [옵션] [<left> <right>]
+```
+
+| 옵션 | 동작 |
+|---|---|
+| `/dl <label>` | 왼쪽 제목 라벨(경로 대신 표시) |
+| `/dr <label>` | 오른쪽 제목 라벨 |
+| `/e` | `Esc` 한 번으로 창 닫기 |
+| `/wl`, `/wr` | 왼쪽/오른쪽 읽기 전용(편집·저장 차단) |
+| `/u` | 최근 목록에 추가 안 함(WinMerge 호환용) |
+| `/register-git` | git 전역 difftool로 등록 후 종료 |
+| `/unregister-git` | 등록 해제 후 종료 |
+
+옵션은 `/dl`·`-dl` 두 접두 모두 인식하며 대소문자를 구분하지 않는다. 종료 코드는 0=차이 없음, 1=차이 있음, 2=오류(WinMerge 관례, git의 `difftool.trustExitCode`와 호환).
+
 ### 단축키
 
 | 단축키 | 동작 |
@@ -60,6 +102,7 @@ Visual Studio 2019 이상(또는 해당 MSBuild)과 .NET Framework 4.8 개발자
 | `Ctrl+S` | 저장 |
 | `Alt+↑` | 이전 차이로 이동 |
 | `Alt+↓` | 다음 차이로 이동 |
+| `Esc` | 창 닫기 (`/e` 옵션으로 실행된 경우만) |
 
 ## 문서
 
@@ -75,6 +118,7 @@ Visual Studio 2019 이상(또는 해당 MSBuild)과 .NET Framework 4.8 개발자
 - [UI 레이어](01.%20Doc/04-UI-레이어.md)
 - [데이터 흐름](01.%20Doc/05-데이터-흐름.md)
 - [빌드 및 테스트](01.%20Doc/06-빌드-및-테스트.md)
+- [git 연동](01.%20Doc/09-git-연동.md)
 
 ### 외부 라이브러리
 

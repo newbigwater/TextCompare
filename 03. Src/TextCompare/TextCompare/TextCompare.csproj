@@ -73,6 +73,10 @@
       <DesignTimeSharedInput>True</DesignTimeSharedInput>
     </Compile>
     <Compile Include="Properties\ExcludeFilterSettingsAdapter.cs" />
+    <Compile Include="Cli\CommandLineOptions.cs" />
+    <Compile Include="Git\GitPaths.cs" />
+    <Compile Include="Git\GitService.cs" />
+    <Compile Include="Git\GitTempFileManager.cs" />
     <Compile Include="Core\DiffOptions.cs" />
     <Compile Include="Core\DiffChange.cs" />
     <Compile Include="Core\MyersDiff.cs" />

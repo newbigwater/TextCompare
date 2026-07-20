@@ -43,6 +43,12 @@
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="..\TextCompare\Cli\CommandLineOptions.cs">
+      <Link>Cli\CommandLineOptions.cs</Link>
+    </Compile>
+    <Compile Include="..\TextCompare\Git\GitPaths.cs">
+      <Link>Git\GitPaths.cs</Link>
+    </Compile>
     <Compile Include="..\TextCompare\Core\DiffOptions.cs">
       <Link>Core\DiffOptions.cs</Link>
     </Compile>

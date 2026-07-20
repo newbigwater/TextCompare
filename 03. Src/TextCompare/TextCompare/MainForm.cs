@@ -6,9 +6,11 @@ using System.Text;
 using System.Windows.Forms;
 using TextCompare.Alignment;
 using TextCompare.Builders;
+using TextCompare.Cli;
 using TextCompare.Controls;
 using TextCompare.Core;
 using TextCompare.Document;
+using TextCompare.Git;
 using TextCompare.IO;
 using TextCompare.Properties;
 using TextCompare.Structure;
@@ -25,14 +27,26 @@ namespace TextCompare
         private bool _isStructureMode;
         private bool _dirty;
         private ExcludeFilterSet _excludeFilters;
+        private readonly CommandLineOptions _cliOptions;
+        private readonly GitTempFileManager _gitTempFiles = new GitTempFileManager();
+        private bool _leftReadOnly;
+        private bool _rightReadOnly;
 
-        public MainForm() : this(new string[0])
+        public MainForm() : this(new CommandLineOptions())
         {
         }
 
-        public MainForm(string[] args)
+        public MainForm(string[] args) : this(CommandLineOptions.Parse(args))
+        {
+        }
+
+        public MainForm(CommandLineOptions options)
         {
             InitializeComponent();
+
+            _cliOptions = options ?? new CommandLineOptions();
+            _leftReadOnly = _cliOptions.LeftReadOnly;
+            _rightReadOnly = _cliOptions.RightReadOnly;
 
             _excludeFilters = ExcludeFilterSettingsAdapter.Load();
 
@@ -46,14 +60,15 @@ namespace TextCompare
 
             WireEvents();
 
-            if (args != null && args.Length >= 2)
+            if (!string.IsNullOrEmpty(_cliOptions.LeftPath) && !string.IsNullOrEmpty(_cliOptions.RightPath))
             {
-                _builder.FilePicker.LeftPath = args[0];
-                _builder.FilePicker.RightPath = args[1];
+                _builder.FilePicker.SetSource(true, _cliOptions.LeftPath, _cliOptions.LeftLabel);
+                _builder.FilePicker.SetSource(false, _cliOptions.RightPath, _cliOptions.RightLabel);
                 Shown += (s, e) => OnCompareRequested(this, EventArgs.Empty);
             }
 
             DragDropHelper.WireFileDrop(this, files => _builder.FilePicker.AcceptDroppedFiles(files));
+            FormClosed += (s, e) => _gitTempFiles.Dispose();
         }
 
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
@@ -73,6 +88,11 @@ namespace TextCompare
                 NavigateRelative(1);
                 return true;
             }
+            if (keyData == Keys.Escape && _cliOptions.CloseWithEsc)
+            {
+                Close();
+                return true;
+            }
             return base.ProcessCmdKey(ref msg, keyData);
         }
 
@@ -80,6 +100,9 @@ namespace TextCompare
         {
             _builder.FilePicker.CompareRequested += OnCompareRequested;
             _builder.FilePicker.ExcludeFilterEditRequested += OnExcludeFilterEditRequested;
+            _builder.FilePicker.GitCompareWithHeadRequested += OnGitCompareWithHeadRequested;
+            _builder.FilePicker.GitRegisterRequested += OnGitRegisterRequested;
+            _builder.FilePicker.GitUnregisterRequested += OnGitUnregisterRequested;
             _builder.NavigationBar.PreviousClicked += (s, e) => NavigateRelative(-1);
             _builder.NavigationBar.NextClicked += (s, e) => NavigateRelative(1);
             _builder.LocationPane.LocationClicked += (s, row) =>
@@ -141,6 +164,115 @@ namespace TextCompare
             }
         }
 
+        /// <summary>
+        /// 현재 선택된 파일(작업본)을 git HEAD 버전과 비교한다.
+        /// HEAD 버전은 임시 파일로 추출해 왼쪽(읽기 전용)에, 작업본은 오른쪽에 배치한다.
+        /// </summary>
+        private void OnGitCompareWithHeadRequested(object sender, EventArgs e)
+        {
+            string target = _builder.FilePicker.RightPath;
+            if (string.IsNullOrWhiteSpace(target) || !File.Exists(target)) target = _builder.FilePicker.LeftPath;
+
+            if (string.IsNullOrWhiteSpace(target))
+            {
+                MessageBox.Show(this, "먼저 비교할 파일을 선택하세요.", "TextCompare", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            if (!File.Exists(target))
+            {
+                MessageBox.Show(this, "선택한 파일을 찾을 수 없습니다.", "TextCompare", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            string repoRoot = GitService.FindRepositoryRoot(target);
+            if (repoRoot == null)
+            {
+                MessageBox.Show(this, "이 파일은 git 저장소 안에 있지 않습니다.", "TextCompare", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            string relPath = GitPaths.GetRepoRelativePath(repoRoot, Path.GetFullPath(target));
+            if (relPath == null)
+            {
+                MessageBox.Show(this, "저장소 기준 상대 경로를 계산할 수 없습니다.", "TextCompare", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            string fileName = Path.GetFileName(target);
+            string tempPath;
+            GitResult result;
+            try
+            {
+                tempPath = _gitTempFiles.CreateTempPathFor(fileName);
+                result = GitService.ShowHead(repoRoot, relPath, tempPath);
+            }
+            catch (IOException ex)
+            {
+                MessageBox.Show(this, "임시 파일을 만들 수 없습니다: " + ex.Message, "TextCompare", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            if (!result.Success)
+            {
+                _gitTempFiles.CleanupCurrent();
+                MessageBox.Show(this, DescribeShowHeadError(result), "TextCompare", MessageBoxButtons.OK,
+                    result.GitNotFound || result.TimedOut ? MessageBoxIcon.Error : MessageBoxIcon.Information);
+                return;
+            }
+
+            _builder.FilePicker.SetSource(true, tempPath, "HEAD: " + fileName);
+            _builder.FilePicker.SetSource(false, Path.GetFullPath(target), null);
+            _leftReadOnly = true;
+            _rightReadOnly = false;
+
+            OnCompareRequested(this, EventArgs.Empty);
+        }
+
+        private static string DescribeShowHeadError(GitResult result)
+        {
+            if (result.GitNotFound) return "git이 설치되어 있지 않거나 PATH에서 찾을 수 없습니다.";
+            if (result.TimedOut) return "git 응답이 없어 중단했습니다.";
+
+            string stdErr = result.StdErr ?? string.Empty;
+            if (result.ExitCode == 128)
+            {
+                if (stdErr.Contains("exists on disk, but not in") || stdErr.Contains("does not exist"))
+                    return "이 파일은 아직 커밋된 적이 없어 HEAD 버전이 없습니다.";
+                if (stdErr.Contains("bad revision") || stdErr.Contains("unknown revision"))
+                    return "이 저장소에는 아직 커밋이 없습니다.";
+            }
+
+            string message = "git 실행 중 오류가 발생했습니다.";
+            if (stdErr.Length > 0)
+            {
+                message += "\r\n" + (stdErr.Length > 300 ? stdErr.Substring(0, 300) + "..." : stdErr);
+            }
+            return message;
+        }
+
+        private void OnGitRegisterRequested(object sender, EventArgs e)
+        {
+            GitResult result = GitService.RegisterAsDifftool(Application.ExecutablePath);
+            if (result.Success)
+            {
+                MessageBox.Show(this, "git difftool로 등록되었습니다.\r\n이제 git difftool 명령으로 이 프로그램이 열립니다.",
+                    "TextCompare", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            MessageBox.Show(this, DescribeShowHeadError(result), "TextCompare", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+
+        private void OnGitUnregisterRequested(object sender, EventArgs e)
+        {
+            GitResult result = GitService.UnregisterDifftool();
+            if (result.Success)
+            {
+                MessageBox.Show(this, "git difftool 등록이 해제되었습니다.", "TextCompare", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            MessageBox.Show(this, DescribeShowHeadError(result), "TextCompare", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+
         private void ToggleEditMode()
         {
             if (_isStructureMode)
@@ -160,6 +292,7 @@ namespace TextCompare
             }
 
             bool newState = !_builder.Viewer.EditMode;
+            _builder.Viewer.SetPaneReadOnly(_leftReadOnly, _rightReadOnly);
             _builder.Viewer.SetEditMode(newState);
             _builder.NavigationBar.SetEditModeState(newState, true);
 
@@ -196,18 +329,26 @@ namespace TextCompare
                 MessageBox.Show(this, "저장할 변경 사항이 없습니다.", "TextCompare", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
+            if (_leftReadOnly && _rightReadOnly)
+            {
+                MessageBox.Show(this, "양쪽 모두 읽기 전용이라 저장할 수 없습니다.", "TextCompare", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
 
             try
             {
                 Encoding leftEnc = _leftEncoding ?? new UTF8Encoding(false);
                 Encoding rightEnc = _rightEncoding ?? new UTF8Encoding(false);
 
-                File.WriteAllText(_builder.FilePicker.LeftPath, _builder.Viewer.LeftEditorText, leftEnc);
-                File.WriteAllText(_builder.FilePicker.RightPath, _builder.Viewer.RightEditorText, rightEnc);
+                if (!_leftReadOnly) File.WriteAllText(_builder.FilePicker.LeftPath, _builder.Viewer.LeftEditorText, leftEnc);
+                if (!_rightReadOnly) File.WriteAllText(_builder.FilePicker.RightPath, _builder.Viewer.RightEditorText, rightEnc);
 
                 _dirty = false;
                 _builder.NavigationBar.SetDirty(false);
-                _builder.StatusLabel.Text = "저장 완료 (" + DateTime.Now.ToString("HH:mm:ss") + ")";
+                string statusText = "저장 완료 (" + DateTime.Now.ToString("HH:mm:ss") + ")";
+                if (_leftReadOnly) statusText += " | 왼쪽은 읽기 전용이라 저장하지 않았습니다.";
+                if (_rightReadOnly) statusText += " | 오른쪽은 읽기 전용이라 저장하지 않았습니다.";
+                _builder.StatusLabel.Text = statusText;
             }
             catch (Exception ex)
             {
@@ -246,6 +387,10 @@ namespace TextCompare
             _excludeFilters.Enabled = _builder.FilePicker.ExcludeFilterEnabled;
             ExcludeFilterSettingsAdapter.Save(_excludeFilters);
 
+            // 라벨 표시 모드가 해제된(사용자가 직접 파일을 바꾼) 쪽은 읽기 전용도 CLI 기본값으로 되돌린다.
+            if (_builder.FilePicker.LeftLabel == null) _leftReadOnly = _cliOptions.LeftReadOnly;
+            if (_builder.FilePicker.RightLabel == null) _rightReadOnly = _cliOptions.RightReadOnly;
+
             DiffOptions options = new DiffOptions
             {
                 IgnoreCase = _builder.FilePicker.IgnoreCase,
@@ -282,6 +427,7 @@ namespace TextCompare
 
                     if (e.Error != null)
                     {
+                        Environment.ExitCode = 2;
                         MessageBox.Show(this, "비교 중 오류가 발생했습니다: " + e.Error.Message, "TextCompare", MessageBoxButtons.OK, MessageBoxIcon.Error);
                         return;
                     }
@@ -381,7 +527,17 @@ namespace TextCompare
             _builder.PreviewBar.Clear();
             _dirty = false;
 
-            _builder.StatusLabel.Text = string.Format("차이 {0}개 | {1}", _document.TotalDiffCount, result.ModeLabel);
+            // git difftool 호환 종료 코드: 0=차이 없음, 1=차이 있음 (difftool.trustExitCode용)
+            Environment.ExitCode = _document.TotalDiffCount > 0 ? 1 : 0;
+
+            string modeLabel = result.ModeLabel;
+            string leftLabel = _builder.FilePicker.LeftLabel;
+            string rightLabel = _builder.FilePicker.RightLabel;
+            if (leftLabel != null || rightLabel != null)
+            {
+                modeLabel = string.Format("{0} ↔ {1} | {2}", leftLabel ?? "Left", rightLabel ?? "Right", modeLabel);
+            }
+            _builder.StatusLabel.Text = string.Format("차이 {0}개 | {1}", _document.TotalDiffCount, modeLabel);
         }
 
         private void NavigateRelative(int direction)
