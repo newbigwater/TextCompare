@@ -3,7 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using TextCompare.Alignment;
+using TextCompare.Cli;
 using TextCompare.Core;
+using TextCompare.Git;
 using TextCompare.Document;
 using TextCompare.Intraline;
 using TextCompare.IO;
@@ -28,6 +30,8 @@ namespace TextCompare.SelfTest
             RunStructureDifferEndToEndTests();
             RunExcludeFilterTests();
             RunMaskFilterTests();
+            RunCommandLineTests();
+            RunGitPathTests();
 
             Console.WriteLine();
             if (_failures == 0)
@@ -795,6 +799,106 @@ namespace TextCompare.SelfTest
             node.Value = value;
             node.ScalarKind = "string";
             return node;
+        }
+
+        private static void RunCommandLineTests()
+        {
+            Console.WriteLine("== CommandLineOptions ==");
+
+            Test("위치 인자 2개만 (기존 호환)", () =>
+            {
+                var options = CommandLineOptions.Parse(new[] { @"C:\a\left.txt", @"C:\a\right.txt" });
+                AssertEqual(@"C:\a\left.txt", options.LeftPath, "LeftPath");
+                AssertEqual(@"C:\a\right.txt", options.RightPath, "RightPath");
+                AssertEqual(0, options.Errors.Count, "오류 없음");
+                Assert(!options.CloseWithEsc && !options.LeftReadOnly, "플래그 미설정");
+            });
+
+            Test("전체 플래그 조합", () =>
+            {
+                var options = CommandLineOptions.Parse(new[] { "/dl", "이전 버전", "/dr", "작업본", "/wl", "/e", "/u", @"C:\l.txt", @"C:\r.txt" });
+                AssertEqual("이전 버전", options.LeftLabel, "LeftLabel");
+                AssertEqual("작업본", options.RightLabel, "RightLabel");
+                Assert(options.LeftReadOnly, "/wl");
+                Assert(!options.RightReadOnly, "/wr 미지정");
+                Assert(options.CloseWithEsc, "/e");
+                Assert(options.NoRecent, "/u");
+                AssertEqual(@"C:\l.txt", options.LeftPath, "LeftPath");
+                AssertEqual(@"C:\r.txt", options.RightPath, "RightPath");
+                AssertEqual(0, options.Errors.Count, "오류 없음");
+            });
+
+            Test("- 접두와 대소문자 무시", () =>
+            {
+                var options = CommandLineOptions.Parse(new[] { "-DL", "old", "/E", "-WR" });
+                AssertEqual("old", options.LeftLabel, "-DL");
+                Assert(options.CloseWithEsc, "/E");
+                Assert(options.RightReadOnly, "-WR");
+            });
+
+            Test("/dl 값 누락은 오류 기록", () =>
+            {
+                var options = CommandLineOptions.Parse(new[] { @"C:\a.txt", @"C:\b.txt", "/dl" });
+                AssertEqual(1, options.Errors.Count, "오류 1건");
+                AssertEqual(@"C:\a.txt", options.LeftPath, "위치 인자는 정상 파싱");
+            });
+
+            Test("미지 플래그는 오류로 수집하되 계속 파싱", () =>
+            {
+                var options = CommandLineOptions.Parse(new[] { "/zz", @"C:\a.txt", @"C:\b.txt" });
+                AssertEqual(1, options.Errors.Count, "미지 플래그 오류 1건");
+                AssertEqual(@"C:\a.txt", options.LeftPath, "LeftPath");
+                AssertEqual(@"C:\b.txt", options.RightPath, "RightPath");
+            });
+
+            Test("/register-git, /unregister-git", () =>
+            {
+                Assert(CommandLineOptions.Parse(new[] { "/register-git" }).RegisterGit, "register");
+                Assert(CommandLineOptions.Parse(new[] { "-unregister-git" }).UnregisterGit, "unregister");
+            });
+
+            Test("슬래시로 시작하는 경로(Git Bash식)는 위치 인자로 취급", () =>
+            {
+                var options = CommandLineOptions.Parse(new[] { "/tmp/a.txt", "/tmp/b.txt" });
+                AssertEqual("/tmp/a.txt", options.LeftPath, "LeftPath");
+                AssertEqual("/tmp/b.txt", options.RightPath, "RightPath");
+                AssertEqual(0, options.Errors.Count, "경로는 오류 아님");
+            });
+        }
+
+        private static void RunGitPathTests()
+        {
+            Console.WriteLine("== GitPaths ==");
+
+            Test("상대 경로: 백슬래시 → 슬래시, 중첩 디렉터리", () =>
+            {
+                AssertEqual("src/sub/a.cs", GitPaths.GetRepoRelativePath(@"C:\repo", @"C:\repo\src\sub\a.cs"), "중첩 경로");
+            });
+
+            Test("상대 경로: 대소문자 무시(Windows)", () =>
+            {
+                AssertEqual("a.txt", GitPaths.GetRepoRelativePath(@"c:\Repo", @"C:\repo\a.txt"), "대소문자 다른 루트");
+            });
+
+            Test("상대 경로: 루트 밖 파일은 null", () =>
+            {
+                Assert(GitPaths.GetRepoRelativePath(@"C:\repo", @"C:\other\a.txt") == null, "루트 밖");
+                Assert(GitPaths.GetRepoRelativePath(@"C:\repo", @"C:\repository\a.txt") == null, "이름이 접두만 같은 형제 디렉터리");
+            });
+
+            Test("상대 경로: 루트 뒤 슬래시 허용", () =>
+            {
+                AssertEqual("a.txt", GitPaths.GetRepoRelativePath(@"C:\repo\", @"C:\repo\a.txt"), "trailing slash");
+            });
+
+            Test("BuildDifftoolCmdValue 형식 고정", () =>
+            {
+                string cmd = GitPaths.BuildDifftoolCmdValue(@"C:\Program Files\TextCompare\TextCompare.exe");
+                Assert(cmd.StartsWith("\"C:/Program Files/TextCompare/TextCompare.exe\""), "forward-slash exe 경로를 따옴표로 감쌈");
+                Assert(cmd.Contains("\"$LOCAL\" \"$REMOTE\""), "$LOCAL/$REMOTE 리터럴 유지");
+                Assert(cmd.Contains("/wl"), "왼쪽 읽기 전용 플래그");
+                Assert(cmd.Contains("/dl \"이전 버전\"") && cmd.Contains("/dr \"작업본\""), "좌우 라벨");
+            });
         }
 
         private static void Test(string name, Action action)
