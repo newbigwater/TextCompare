@@ -20,6 +20,8 @@ namespace TextCompare.Controls
         private int _selectedBlockIndex = -1;
         private bool _editMode;
         private bool _suppressEditorEvents;
+        private bool _leftReadOnly;
+        private bool _rightReadOnly;
 
         public event EventHandler<int> CurrentRowChanged;
         public event EventHandler<int> CurrentBlockChanged;
@@ -129,13 +131,35 @@ namespace TextCompare.Controls
                 _hScroll.Visible = false;
                 _leftEditor.Visible = true;
                 _rightEditor.Visible = true;
+                ApplyEditorReadOnlyState();
                 _editMode = true;
-                _leftEditor.Focus();
+                if (_leftReadOnly && !_rightReadOnly) _rightEditor.Focus();
+                else _leftEditor.Focus();
             }
             else
             {
                 ExitEditModeInternal();
             }
+        }
+
+        /// <summary>
+        /// 편집 모드에서 좌/우 편집기의 읽기 전용 여부를 지정한다.
+        /// git difftool의 $LOCAL처럼 저장해도 의미가 없는(임시 파일) 쪽의 편집을 막는 용도.
+        /// </summary>
+        public void SetPaneReadOnly(bool leftReadOnly, bool rightReadOnly)
+        {
+            _leftReadOnly = leftReadOnly;
+            _rightReadOnly = rightReadOnly;
+            ApplyEditorReadOnlyState();
+        }
+
+        private void ApplyEditorReadOnlyState()
+        {
+            _leftEditor.ReadOnly = _leftReadOnly;
+            _rightEditor.ReadOnly = _rightReadOnly;
+            // 읽기 전용인 쪽은 배경을 살짝 어둡게 해 시각적으로 구분한다.
+            _leftEditor.BackColor = _leftReadOnly ? System.Drawing.SystemColors.Control : System.Drawing.SystemColors.Window;
+            _rightEditor.BackColor = _rightReadOnly ? System.Drawing.SystemColors.Control : System.Drawing.SystemColors.Window;
         }
 
         private void ExitEditModeInternal()

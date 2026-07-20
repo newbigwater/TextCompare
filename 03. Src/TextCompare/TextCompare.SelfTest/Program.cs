@@ -3,7 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using TextCompare.Alignment;
+using TextCompare.Cli;
 using TextCompare.Core;
+using TextCompare.Git;
 using TextCompare.Document;
 using TextCompare.Intraline;
 using TextCompare.IO;
@@ -27,6 +29,9 @@ namespace TextCompare.SelfTest
             RunPrettyPrinterTests();
             RunStructureDifferEndToEndTests();
             RunExcludeFilterTests();
+            RunMaskFilterTests();
+            RunCommandLineTests();
+            RunGitPathTests();
 
             Console.WriteLine();
             if (_failures == 0)
@@ -623,6 +628,162 @@ namespace TextCompare.SelfTest
             });
         }
 
+        private static void RunMaskFilterTests()
+        {
+            Test("MaskMatch: 매치 부분만 다른 두 줄은 Same으로 판정되고 원문·마스크 좌표가 보존된다", () =>
+            {
+                var left = new List<string> { "<item address=\"aaa\" name=\"n\"/>" };
+                var right = new List<string> { "<item address=\"bbb\" name=\"n\"/>" };
+                var filters = new ExcludeFilterSet { Enabled = true };
+                filters.Patterns.Add(new ExcludeFilterPattern("address=\"[^\"]*\"", ExcludeFilterMode.MaskMatch));
+
+                var doc = DiffDocument.Build(left, right, new DiffOptions { ExcludeFilters = filters });
+
+                AssertEqual(1, doc.Rows.Count, "줄은 제거되지 않고 1행이 남아야 함");
+                AssertEqual(RowKind.Same, doc.Rows[0].Kind, "마스크 구간만 다르므로 Same이어야 함");
+                AssertEqual(0, doc.TotalDiffCount, "diff 개수 0");
+                AssertEqual("<item address=\"aaa\" name=\"n\"/>", doc.Rows[0].LeftText, "화면용 원문은 마스킹되지 않아야 함");
+                Assert(doc.Rows[0].LeftMaskSpans != null && doc.Rows[0].LeftMaskSpans.Length == 1, "좌측 마스크 스팬 1개");
+                AssertEqual(6, doc.Rows[0].LeftMaskSpans[0].Start, "마스크 시작 위치");
+                AssertEqual(13, doc.Rows[0].LeftMaskSpans[0].Length, "마스크 길이");
+            });
+
+            Test("MaskMatch: 매치가 한쪽에만 있으면 Same이 되면 안 된다", () =>
+            {
+                var left = new List<string> { "<t addr=\"x\">" };
+                var right = new List<string> { "<t>" };
+                var filters = new ExcludeFilterSet { Enabled = true };
+                filters.Patterns.Add(new ExcludeFilterPattern("addr=\"[^\"]*\"", ExcludeFilterMode.MaskMatch));
+
+                var doc = DiffDocument.Build(left, right, new DiffOptions { ExcludeFilters = filters });
+
+                AssertEqual(1, doc.TotalDiffCount, "센티널 문자 덕분에 여전히 다름으로 판정되어야 함");
+                AssertEqual(RowKind.Changed, doc.Rows[0].Kind, "Changed여야 함");
+            });
+
+            Test("MaskMatch: 매치 개수가 다르면 Changed로 판정된다", () =>
+            {
+                var left = new List<string> { "a=1 b=2" };
+                var right = new List<string> { "a=9" };
+                var filters = new ExcludeFilterSet { Enabled = true };
+                filters.Patterns.Add(new ExcludeFilterPattern("\\d+", ExcludeFilterMode.MaskMatch));
+
+                var doc = DiffDocument.Build(left, right, new DiffOptions { ExcludeFilters = filters });
+                AssertEqual(RowKind.Changed, doc.Rows[0].Kind, "매치 개수(2 vs 1)가 다르므로 Changed여야 함");
+            });
+
+            Test("MaskMatch: 겹치는 여러 패턴의 매치 구간은 병합된다", () =>
+            {
+                var left = new List<string> { "xabbcy" };
+                var right = new List<string> { "xabcy" };
+                var filters = new ExcludeFilterSet { Enabled = true };
+                filters.Patterns.Add(new ExcludeFilterPattern("ab+", ExcludeFilterMode.MaskMatch));
+                filters.Patterns.Add(new ExcludeFilterPattern("b+c", ExcludeFilterMode.MaskMatch));
+
+                var doc = DiffDocument.Build(left, right, new DiffOptions { ExcludeFilters = filters });
+
+                AssertEqual(RowKind.Same, doc.Rows[0].Kind, "마스크 병합 후 양쪽 비교용 줄이 같아 Same이어야 함");
+                Assert(doc.Rows[0].LeftMaskSpans != null && doc.Rows[0].LeftMaskSpans.Length == 1, "겹친 두 매치는 1개 스팬으로 병합");
+                AssertEqual(1, doc.Rows[0].LeftMaskSpans[0].Start, "병합 스팬 시작(abbc)");
+                AssertEqual(4, doc.Rows[0].LeftMaskSpans[0].Length, "병합 스팬 길이(abbc)");
+            });
+
+            Test("ExcludeLine + MaskMatch 혼합: 줄 제거·줄 번호 건너뜀과 부분 마스킹이 함께 동작한다", () =>
+            {
+                var left = new List<string> { "A", "#c", "B time=5", "C" };
+                var right = new List<string> { "A", "B time=9", "C" };
+                var filters = new ExcludeFilterSet { Enabled = true };
+                filters.Patterns.Add(new ExcludeFilterPattern("^#", ExcludeFilterMode.ExcludeLine));
+                filters.Patterns.Add(new ExcludeFilterPattern("time=\\d+", ExcludeFilterMode.MaskMatch));
+
+                var doc = DiffDocument.Build(left, right, new DiffOptions { ExcludeFilters = filters });
+
+                AssertEqual(0, doc.TotalDiffCount, "time 차이는 마스크로 무시되어 diff 0이어야 함");
+                AssertEqual(3, doc.Rows.Count, "#c 제거 후 3행");
+                string leftLineNumbers = string.Join(",", doc.Rows.Where(r => r.LeftLineNo.HasValue).Select(r => r.LeftLineNo.Value));
+                AssertEqual("1,3,4", leftLineNumbers, "제거된 2번을 건너뛴 원본 줄 번호 유지");
+            });
+
+            Test("MaskMatch + IgnoreCase: 마스킹 후 정규화가 적용된다(마스킹 먼저, 정규화 나중)", () =>
+            {
+                var left = new List<string> { "Hello time=1" };
+                var right = new List<string> { "HELLO time=2" };
+                var filters = new ExcludeFilterSet { Enabled = true };
+                filters.Patterns.Add(new ExcludeFilterPattern("time=\\d+", ExcludeFilterMode.MaskMatch));
+
+                var doc = DiffDocument.Build(left, right, new DiffOptions { IgnoreCase = true, ExcludeFilters = filters });
+                AssertEqual(0, doc.TotalDiffCount, "마스크(time) + IgnoreCase(Hello/HELLO)로 완전 동일 판정이어야 함");
+            });
+
+            Test("IntralineDiffer: 마스크 구간과 겹치는 문자 단위 차이는 강조되지 않는다(클리핑)", () =>
+            {
+                var left = new List<string> { "name=\"a\" id=1" };
+                var right = new List<string> { "name=\"b\" id=2" };
+                var filters = new ExcludeFilterSet { Enabled = true };
+                filters.Patterns.Add(new ExcludeFilterPattern("id=\\d", ExcludeFilterMode.MaskMatch));
+
+                var doc = DiffDocument.Build(left, right, new DiffOptions { ExcludeFilters = filters });
+                var row = doc.Rows[0];
+                AssertEqual(RowKind.Changed, row.Kind, "마스크 밖(a/b) 차이 때문에 Changed여야 함");
+                Assert(row.LeftMaskSpans != null, "좌측 마스크 스팬 존재");
+
+                var spans = IntralineDiffer.ComputeLeftSpans(row.LeftText, row.RightText, row.LeftMaskSpans);
+                foreach (var span in spans.Where(s => s.IsDifferent))
+                {
+                    foreach (var mask in row.LeftMaskSpans)
+                    {
+                        Assert(span.Start + span.Length <= mask.Start || span.Start >= mask.End,
+                            "IsDifferent 스팬(" + span.Start + "," + span.Length + ")이 마스크 구간과 겹치면 안 됨");
+                    }
+                }
+                Assert(spans.Any(s => s.IsDifferent), "마스크 밖의 진짜 차이(a/b)는 여전히 강조되어야 함");
+
+                int covered = spans.Sum(s => s.Length);
+                AssertEqual(row.LeftText.Length, covered, "클리핑 후에도 스팬들이 라인 전체를 빈틈없이 덮어야 함(렌더러 계약)");
+            });
+
+            Test("MaskMatch: 잘못된 정규식 패턴은 예외 없이 무시된다", () =>
+            {
+                var left = new List<string> { "A", "B" };
+                var right = new List<string> { "A", "X" };
+                var filters = new ExcludeFilterSet { Enabled = true };
+                filters.Patterns.Add(new ExcludeFilterPattern("(unclosed", ExcludeFilterMode.MaskMatch));
+
+                var doc = DiffDocument.Build(left, right, new DiffOptions { ExcludeFilters = filters });
+                AssertEqual(1, doc.TotalDiffCount, "무효 패턴은 무시되고 기존 비교와 동일해야 함");
+                Assert(doc.Rows.All(r => r.LeftMaskSpans == null && r.RightMaskSpans == null), "무효 패턴은 마스크 스팬을 만들면 안 됨");
+            });
+
+            Test("MaskMatch: Enabled=false면 마스킹되지 않는다", () =>
+            {
+                var left = new List<string> { "time=1" };
+                var right = new List<string> { "time=2" };
+                var filters = new ExcludeFilterSet { Enabled = false };
+                filters.Patterns.Add(new ExcludeFilterPattern("time=\\d+", ExcludeFilterMode.MaskMatch));
+
+                var doc = DiffDocument.Build(left, right, new DiffOptions { ExcludeFilters = filters });
+                AssertEqual(1, doc.TotalDiffCount, "필터 비활성 시 time 차이는 그대로 diff여야 함");
+                Assert(doc.Rows.All(r => r.LeftMaskSpans == null && r.RightMaskSpans == null), "마스크 스팬이 없어야 함");
+            });
+
+            Test("HasLineExclusions: ExcludeLine 패턴이 있을 때만 true(편집 모드 게이트)", () =>
+            {
+                var maskOnly = new ExcludeFilterSet { Enabled = true };
+                maskOnly.Patterns.Add(new ExcludeFilterPattern("x", ExcludeFilterMode.MaskMatch));
+                Assert(!maskOnly.HasLineExclusions, "MaskMatch만 있으면 false(편집 허용)");
+
+                var withLine = new ExcludeFilterSet { Enabled = true };
+                withLine.Patterns.Add(new ExcludeFilterPattern("x", ExcludeFilterMode.MaskMatch));
+                withLine.Patterns.Add(new ExcludeFilterPattern("^#"));
+                Assert(withLine.HasLineExclusions, "ExcludeLine 패턴이 있으면 true(편집 차단)");
+                AssertEqual(ExcludeFilterMode.ExcludeLine, withLine.Patterns[1].Mode, "1-인자 생성자의 기본 모드는 ExcludeLine(하위호환)");
+
+                var disabled = new ExcludeFilterSet { Enabled = false };
+                disabled.Patterns.Add(new ExcludeFilterPattern("^#"));
+                Assert(!disabled.HasLineExclusions, "Enabled=false면 항상 false");
+            });
+        }
+
         private static StructuredNode MakeMessage(string name, string id)
         {
             var node = new StructuredNode("Message", NodeKind.Element);
@@ -638,6 +799,106 @@ namespace TextCompare.SelfTest
             node.Value = value;
             node.ScalarKind = "string";
             return node;
+        }
+
+        private static void RunCommandLineTests()
+        {
+            Console.WriteLine("== CommandLineOptions ==");
+
+            Test("위치 인자 2개만 (기존 호환)", () =>
+            {
+                var options = CommandLineOptions.Parse(new[] { @"C:\a\left.txt", @"C:\a\right.txt" });
+                AssertEqual(@"C:\a\left.txt", options.LeftPath, "LeftPath");
+                AssertEqual(@"C:\a\right.txt", options.RightPath, "RightPath");
+                AssertEqual(0, options.Errors.Count, "오류 없음");
+                Assert(!options.CloseWithEsc && !options.LeftReadOnly, "플래그 미설정");
+            });
+
+            Test("전체 플래그 조합", () =>
+            {
+                var options = CommandLineOptions.Parse(new[] { "/dl", "이전 버전", "/dr", "작업본", "/wl", "/e", "/u", @"C:\l.txt", @"C:\r.txt" });
+                AssertEqual("이전 버전", options.LeftLabel, "LeftLabel");
+                AssertEqual("작업본", options.RightLabel, "RightLabel");
+                Assert(options.LeftReadOnly, "/wl");
+                Assert(!options.RightReadOnly, "/wr 미지정");
+                Assert(options.CloseWithEsc, "/e");
+                Assert(options.NoRecent, "/u");
+                AssertEqual(@"C:\l.txt", options.LeftPath, "LeftPath");
+                AssertEqual(@"C:\r.txt", options.RightPath, "RightPath");
+                AssertEqual(0, options.Errors.Count, "오류 없음");
+            });
+
+            Test("- 접두와 대소문자 무시", () =>
+            {
+                var options = CommandLineOptions.Parse(new[] { "-DL", "old", "/E", "-WR" });
+                AssertEqual("old", options.LeftLabel, "-DL");
+                Assert(options.CloseWithEsc, "/E");
+                Assert(options.RightReadOnly, "-WR");
+            });
+
+            Test("/dl 값 누락은 오류 기록", () =>
+            {
+                var options = CommandLineOptions.Parse(new[] { @"C:\a.txt", @"C:\b.txt", "/dl" });
+                AssertEqual(1, options.Errors.Count, "오류 1건");
+                AssertEqual(@"C:\a.txt", options.LeftPath, "위치 인자는 정상 파싱");
+            });
+
+            Test("미지 플래그는 오류로 수집하되 계속 파싱", () =>
+            {
+                var options = CommandLineOptions.Parse(new[] { "/zz", @"C:\a.txt", @"C:\b.txt" });
+                AssertEqual(1, options.Errors.Count, "미지 플래그 오류 1건");
+                AssertEqual(@"C:\a.txt", options.LeftPath, "LeftPath");
+                AssertEqual(@"C:\b.txt", options.RightPath, "RightPath");
+            });
+
+            Test("/register-git, /unregister-git", () =>
+            {
+                Assert(CommandLineOptions.Parse(new[] { "/register-git" }).RegisterGit, "register");
+                Assert(CommandLineOptions.Parse(new[] { "-unregister-git" }).UnregisterGit, "unregister");
+            });
+
+            Test("슬래시로 시작하는 경로(Git Bash식)는 위치 인자로 취급", () =>
+            {
+                var options = CommandLineOptions.Parse(new[] { "/tmp/a.txt", "/tmp/b.txt" });
+                AssertEqual("/tmp/a.txt", options.LeftPath, "LeftPath");
+                AssertEqual("/tmp/b.txt", options.RightPath, "RightPath");
+                AssertEqual(0, options.Errors.Count, "경로는 오류 아님");
+            });
+        }
+
+        private static void RunGitPathTests()
+        {
+            Console.WriteLine("== GitPaths ==");
+
+            Test("상대 경로: 백슬래시 → 슬래시, 중첩 디렉터리", () =>
+            {
+                AssertEqual("src/sub/a.cs", GitPaths.GetRepoRelativePath(@"C:\repo", @"C:\repo\src\sub\a.cs"), "중첩 경로");
+            });
+
+            Test("상대 경로: 대소문자 무시(Windows)", () =>
+            {
+                AssertEqual("a.txt", GitPaths.GetRepoRelativePath(@"c:\Repo", @"C:\repo\a.txt"), "대소문자 다른 루트");
+            });
+
+            Test("상대 경로: 루트 밖 파일은 null", () =>
+            {
+                Assert(GitPaths.GetRepoRelativePath(@"C:\repo", @"C:\other\a.txt") == null, "루트 밖");
+                Assert(GitPaths.GetRepoRelativePath(@"C:\repo", @"C:\repository\a.txt") == null, "이름이 접두만 같은 형제 디렉터리");
+            });
+
+            Test("상대 경로: 루트 뒤 슬래시 허용", () =>
+            {
+                AssertEqual("a.txt", GitPaths.GetRepoRelativePath(@"C:\repo\", @"C:\repo\a.txt"), "trailing slash");
+            });
+
+            Test("BuildDifftoolCmdValue 형식 고정", () =>
+            {
+                string cmd = GitPaths.BuildDifftoolCmdValue(@"C:\Program Files\TextCompare\TextCompare.exe");
+                Assert(cmd.StartsWith("\"C:/Program Files/TextCompare/TextCompare.exe\""), "forward-slash exe 경로를 따옴표로 감쌈");
+                Assert(cmd.Contains("\"$LOCAL\" \"$REMOTE\""), "$LOCAL/$REMOTE 리터럴 유지");
+                Assert(cmd.Contains("/wl"), "왼쪽 읽기 전용 플래그");
+                Assert(cmd.Contains("/dl \"이전 버전\"") && cmd.Contains("/dr \"작업본\""), "좌우 라벨");
+            });
         }
 
         private static void Test(string name, Action action)

@@ -12,13 +12,15 @@
     <FileAlignment>512</FileAlignment>
     <Deterministic>true</Deterministic>
     <LangVersion>7.3</LangVersion>
+    <SolutionDir Condition="'$(SolutionDir)' == '' Or '$(SolutionDir)' == '*Undefined*'">..\</SolutionDir>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <PlatformTarget>AnyCPU</PlatformTarget>
     <DebugSymbols>true</DebugSymbols>
     <DebugType>full</DebugType>
     <Optimize>false</Optimize>
-    <OutputPath>bin\Debug\</OutputPath>
+    <OutputPath>$(SolutionDir)\..\..\build\$(Platform)$(Configuration)\</OutputPath>
+    <IntermediateOutputPath>$(SolutionDir)\..\..\output\$(Platform)$(Configuration)\$(AssemblyName)\</IntermediateOutputPath>
     <DefineConstants>DEBUG;TRACE</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
@@ -27,7 +29,8 @@
     <PlatformTarget>AnyCPU</PlatformTarget>
     <DebugType>pdbonly</DebugType>
     <Optimize>true</Optimize>
-    <OutputPath>bin\Release\</OutputPath>
+    <OutputPath>$(SolutionDir)\..\..\build\$(Platform)$(Configuration)\</OutputPath>
+    <IntermediateOutputPath>$(SolutionDir)\..\..\output\$(Platform)$(Configuration)\$(AssemblyName)\</IntermediateOutputPath>
     <DefineConstants>TRACE</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
@@ -43,6 +46,12 @@
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="..\TextCompare\Cli\CommandLineOptions.cs">
+      <Link>Cli\CommandLineOptions.cs</Link>
+    </Compile>
+    <Compile Include="..\TextCompare\Git\GitPaths.cs">
+      <Link>Git\GitPaths.cs</Link>
+    </Compile>
     <Compile Include="..\TextCompare\Core\DiffOptions.cs">
       <Link>Core\DiffOptions.cs</Link>
     </Compile>
@@ -58,8 +67,14 @@
     <Compile Include="..\TextCompare\Core\LineSplitter.cs">
       <Link>Core\LineSplitter.cs</Link>
     </Compile>
+    <Compile Include="..\TextCompare\Core\ExcludeFilterMode.cs">
+      <Link>Core\ExcludeFilterMode.cs</Link>
+    </Compile>
     <Compile Include="..\TextCompare\Core\ExcludeFilterPattern.cs">
       <Link>Core\ExcludeFilterPattern.cs</Link>
+    </Compile>
+    <Compile Include="..\TextCompare\Core\TextSpan.cs">
+      <Link>Core\TextSpan.cs</Link>
     </Compile>
     <Compile Include="..\TextCompare\Core\ExcludeFilterSet.cs">
       <Link>Core\ExcludeFilterSet.cs</Link>

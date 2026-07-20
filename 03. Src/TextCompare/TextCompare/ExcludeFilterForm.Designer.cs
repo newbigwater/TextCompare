@@ -17,6 +17,7 @@ namespace TextCompare
         private System.Windows.Forms.Label _infoLabel;
         private System.Windows.Forms.DataGridView _patternGrid;
         private System.Windows.Forms.DataGridViewTextBoxColumn _patternColumn;
+        private System.Windows.Forms.DataGridViewComboBoxColumn _modeColumn;
         private System.Windows.Forms.DataGridViewTextBoxColumn _statusColumn;
         private System.Windows.Forms.TableLayoutPanel _buttonPanel;
         private System.Windows.Forms.Button _addButton;
@@ -30,6 +31,7 @@ namespace TextCompare
             this._infoLabel = new System.Windows.Forms.Label();
             this._patternGrid = new System.Windows.Forms.DataGridView();
             this._patternColumn = new System.Windows.Forms.DataGridViewTextBoxColumn();
+            this._modeColumn = new System.Windows.Forms.DataGridViewComboBoxColumn();
             this._statusColumn = new System.Windows.Forms.DataGridViewTextBoxColumn();
             this._buttonPanel = new System.Windows.Forms.TableLayoutPanel();
             this._addButton = new System.Windows.Forms.Button();
@@ -56,7 +58,8 @@ namespace TextCompare
             //
             this._infoLabel.AutoSize = true;
             this._infoLabel.Dock = System.Windows.Forms.DockStyle.Top;
-            this._infoLabel.Text = "정규식 패턴에 일치하는 줄은 좌/우 비교에서 완전히 제외됩니다(화면에도 표시되지 않습니다).";
+            this._infoLabel.Text = "라인 전체 제외: 패턴에 일치하는 줄을 비교·화면에서 통째로 제거합니다.\r\n" +
+                "매치 부분만 제외: 줄은 그대로 두고, 일치한 구간만 비교에서 무시합니다(회색 배경으로 표시).";
             this._infoLabel.Padding = new System.Windows.Forms.Padding(0, 0, 0, 8);
             this._root.Controls.Add(this._infoLabel, 0, 0);
             //
@@ -71,6 +74,7 @@ namespace TextCompare
             this._patternGrid.MultiSelect = false;
             this._patternGrid.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] {
             this._patternColumn,
+            this._modeColumn,
             this._statusColumn});
             this._patternGrid.CellEndEdit += new System.Windows.Forms.DataGridViewCellEventHandler(this.PatternGrid_CellEndEdit);
             this._root.Controls.Add(this._patternGrid, 0, 1);
@@ -80,6 +84,16 @@ namespace TextCompare
             this._patternColumn.HeaderText = "패턴 (정규식)";
             this._patternColumn.Name = "_patternColumn";
             this._patternColumn.AutoSizeMode = System.Windows.Forms.DataGridViewAutoSizeColumnMode.Fill;
+            //
+            // _modeColumn
+            //
+            this._modeColumn.HeaderText = "모드";
+            this._modeColumn.Name = "_modeColumn";
+            this._modeColumn.Items.AddRange(new object[] {
+            "라인 전체 제외",
+            "매치 부분만 제외"});
+            this._modeColumn.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this._modeColumn.Width = 130;
             //
             // _statusColumn
             //

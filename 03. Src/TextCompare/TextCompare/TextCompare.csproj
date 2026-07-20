@@ -11,14 +11,16 @@
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
-    <Deterministic>true</Deterministic>
+    <Deterministic>false</Deterministic>
+    <SolutionDir Condition="'$(SolutionDir)' == '' Or '$(SolutionDir)' == '*Undefined*'">..\</SolutionDir>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <PlatformTarget>AnyCPU</PlatformTarget>
     <DebugSymbols>true</DebugSymbols>
     <DebugType>full</DebugType>
     <Optimize>false</Optimize>
-    <OutputPath>bin\Debug\</OutputPath>
+    <OutputPath>$(SolutionDir)\..\..\build\$(Platform)$(Configuration)\</OutputPath>
+    <IntermediateOutputPath>$(SolutionDir)\..\..\output\$(Platform)$(Configuration)\$(AssemblyName)\</IntermediateOutputPath>
     <DefineConstants>DEBUG;TRACE</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
@@ -27,7 +29,8 @@
     <PlatformTarget>AnyCPU</PlatformTarget>
     <DebugType>pdbonly</DebugType>
     <Optimize>true</Optimize>
-    <OutputPath>bin\Release\</OutputPath>
+    <OutputPath>$(SolutionDir)\..\..\build\$(Platform)$(Configuration)\</OutputPath>
+    <IntermediateOutputPath>$(SolutionDir)\..\..\output\$(Platform)$(Configuration)\$(AssemblyName)\</IntermediateOutputPath>
     <DefineConstants>TRACE</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
@@ -73,13 +76,19 @@
       <DesignTimeSharedInput>True</DesignTimeSharedInput>
     </Compile>
     <Compile Include="Properties\ExcludeFilterSettingsAdapter.cs" />
+    <Compile Include="Cli\CommandLineOptions.cs" />
+    <Compile Include="Git\GitPaths.cs" />
+    <Compile Include="Git\GitService.cs" />
+    <Compile Include="Git\GitTempFileManager.cs" />
     <Compile Include="Core\DiffOptions.cs" />
     <Compile Include="Core\DiffChange.cs" />
     <Compile Include="Core\MyersDiff.cs" />
     <Compile Include="Core\LineHasher.cs" />
     <Compile Include="Core\LineSplitter.cs" />
+    <Compile Include="Core\ExcludeFilterMode.cs" />
     <Compile Include="Core\ExcludeFilterPattern.cs" />
     <Compile Include="Core\ExcludeFilterSet.cs" />
+    <Compile Include="Core\TextSpan.cs" />
     <Compile Include="Alignment\RowKind.cs" />
     <Compile Include="Alignment\AlignedRow.cs" />
     <Compile Include="Alignment\DocumentAligner.cs" />
@@ -169,4 +178,8 @@
     </None>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <!-- PostBuildEvent는 $(TargetName)/$(TargetPath) 등이 정의되는 Microsoft.CSharp.targets import 이후에 두어야 매크로가 확장된다. -->
+  <PropertyGroup>
+    <PostBuildEvent>if /I "$(ConfigurationName)" == "Release" call "..\..\BuildInfo.bat" $(Platform) $(Configuration) ..\..\build\$(Platform)$(Configuration)\ $(TargetName) $(TargetExt) "$(TargetPath)"</PostBuildEvent>
+  </PropertyGroup>
 </Project>

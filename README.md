@@ -9,6 +9,9 @@ C# / .NET Framework 4.8 / WinForms 기반의 텍스트·XML·JSON 비교 프로�
 - [Manual](#manual)
   - [빌드](#빌드)
   - [사용법](#사용법)
+  - [제외 필터](#제외-필터)
+  - [git 연동](#git-연동)
+  - [명령줄 옵션](#명령줄-옵션)
   - [단축키](#단축키)
 - [문서](#문서)
   - [설계서](#설계서)
@@ -31,7 +34,9 @@ TextCompare는 (1)을 **ghost-line 정렬**로, (2)를 **자연 키(natural key)
 - 파일 드래그앤드롭(놓은 위치에 따라 Left/Right 자동 배정)
 - 실시간 편집 모드(입력 후 자동 재비교) + 저장(원본 인코딩 유지)
 - 대소문자/공백 무시 옵션
+- 정규식 제외 필터 — 패턴별로 "라인 전체 제외" / "매치 부분만 제외"(구간 회색 표시) 모드 선택
 - UTF-8(BOM 유무)/UTF-16/CP949(EUC-KR) 자동 인코딩 감지
+- **git 연동**: `git difftool` 외부 도구 등록(원클릭), 앱 내 "HEAD와 비교"로 작업 중 수정 내용 즉시 검토, WinMerge 스타일 명령줄 옵션(`/dl` `/dr` `/e` `/wl` 등)
 
 ## Manual
 
@@ -39,8 +44,27 @@ TextCompare는 (1)을 **ghost-line 정렬**로, (2)를 **자연 키(natural key)
 
 Visual Studio 2019 이상(또는 해당 MSBuild)과 .NET Framework 4.8 개발자 팩이 필요하다.
 
+- **배치 빌드(권장)**: 저장소 루트에서 `BuildAll.bat` 실행. vswhere로 MSBuild를 자동 탐색해 Release 전체 리빌드 → SelfTest 실행 → `artifact\` 생성까지 수행한다. 성공 시 exit code 0, 실패 시 1 (CI 친화적, `pause` 없음).
 - **Visual Studio**: `03. Src/TextCompare/TextCompare.sln` 열고 빌드.
 - **CLI**: [빌드 및 테스트 문서](01.%20Doc/06-빌드-및-테스트.md) 참고 (Git Bash에서 MSBuild 호출 시 주의사항 포함).
+
+#### 배치 빌드 시스템 구성
+
+| 경로 | 내용 |
+|---|---|
+| `BuildAll.bat` | 전체 빌드 진입점 (Rebuild → SelfTest → git log 이력 기록) |
+| `BuildInfo.bat` | Release PostBuildEvent에서 호출됨. 빌드된 exe의 FileVersion을 읽어 artifact 스테이징 + `TextCompare.buildInfo.txt` 생성 |
+| `build\<Platform><Config>\` | 최종 바이너리 (예: `build\AnyCPURelease\`) |
+| `output\<Platform><Config>\<어셈블리명>\` | obj 중간 산출물 |
+| `artifact\<Platform><Config>\` | 배포물: `TextCompare.exe`, `TextCompare.exe.config`, `TextCompare.buildInfo.txt` |
+| `artifact\history.TextCompare.txt` | `git log` 이력 |
+
+버전 관리: 메인 프로젝트는 `AssemblyVersion("1.0.*")` 와일드카드(+ `Deterministic=false`)로 빌드 시각 기반 `1.0.<build>.<revision>` 버전이 자동 생성되며, `BuildInfo.bat`이 이를 buildInfo.txt에 기록한다.
+
+주의사항:
+
+- 이 저장소의 프로젝트는 출력 경로가 `bin\`이 아니라 저장소 루트의 `build\`로 설정되어 있다. VS에서 Debug(F5) 실행 시에도 `build\AnyCPUDebug\`에서 실행된다.
+- 일부 PC에는 `Platform` 환경변수가 설정되어 있어 MSBuild의 `Platform` 프로퍼티와 충돌한다. `BuildAll.bat`은 이를 `set Platform=`으로 제거하고 `/p:Platform="Any CPU"`를 명시한다. CLI에서 직접 빌드할 때도 동일하게 명시할 것.
 
 ### 사용법
 
@@ -53,6 +77,69 @@ Visual Studio 2019 이상(또는 해당 MSBuild)과 .NET Framework 4.8 개발자
 4. 텍스트 비교 모드에서 `편집 모드` 버튼을 누르면 직접 내용을 수정할 수 있다. 입력을 멈추면 자동으로 재비교되며, `Ctrl+S` 또는 `저장` 버튼으로 원본 인코딩 그대로 저장한다.
    - XML/JSON 구조 비교 모드에서는 편집을 지원하지 않는다(버튼을 누르면 안내 메시지가 표시된다).
 
+### 제외 필터
+
+타임스탬프나 주소 값처럼 버전마다 달라지지만 의미는 없는 차이를 비교에서 무시할 수 있다. 상단 `제외 필터` 체크박스를 켜고 `편집...` 버튼으로 정규식 패턴을 등록한다. 패턴마다 두 가지 모드 중 하나를 고른다:
+
+- **라인 전체 제외** — 패턴에 일치하는 줄을 비교·화면에서 통째로 제거한다.
+- **매치 부분만 제외** — 줄은 화면에 그대로 남고, 일치한 구간만 비교에서 무시된다(회색 배경으로 표시).
+
+대표 예제:
+
+| 패턴 | 활용 |
+|---|---|
+| `\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}` | `2026-07-20T14:32:07` 같은 ISO 8601 타임스탬프. 로그 줄 앞머리나 XML 속성처럼 줄의 일부로 등장하면 "매치 부분만 제외" 모드로 등록해 타임스탬프 구간만 무시하고 나머지 내용은 비교한다 |
+| `address="[^"]*"` | 값이 무엇이든(빈 값 포함) `address="..."` 속성 전체를 매칭. "매치 부분만 제외" 모드로 등록하면 주소 값만 다른 줄이 "같음"으로 판정된다 |
+
+정규식이 처음이라면 → [부록: 정규식 입문](01.%20Doc/08-부록-정규식-입문.md) (기호 표와 실전 예제 수록)
+
+### git 연동
+
+WinMerge의 [버전 관리 연동](https://manual.winmerge.org/en/Version_control.html)과 같은 방식으로, git과 함께 수정 내용을 검토할 수 있다.
+
+**① 앱 내 "HEAD와 비교"** — 상단 `git ▾` 버튼 → `HEAD와 비교`:
+
+1. 비교할 파일을 Left 또는 Right 칸에 지정한다(git 저장소 안의 파일).
+2. `git ▾ → HEAD와 비교`를 누르면 마지막 커밋(HEAD) 버전이 왼쪽(읽기 전용, `HEAD: 파일명` 라벨), 현재 작업본이 오른쪽에 놓여 즉시 비교된다.
+3. HEAD 버전은 임시 파일로 추출되며 앱 종료 시 자동 삭제된다. 파일이 저장소 밖이거나, 아직 커밋된 적이 없거나, git이 설치되어 있지 않으면 각각 안내 메시지가 표시된다.
+
+**② git difftool로 사용** — `git ▾ → git difftool로 등록` (또는 `TextCompare.exe /register-git`):
+
+전역 git 설정(`git config --global`)에 difftool로 등록된다. 이후 저장소에서:
+
+```bash
+git difftool          # 수정된 파일을 하나씩 TextCompare로 검토
+git difftool HEAD~3   # 3커밋 전과 비교
+```
+
+왼쪽에 "이전 버전"(읽기 전용), 오른쪽에 "작업본"이 라벨로 표시되고, `Esc` 한 번으로 창을 닫고 다음 파일로 넘어간다. 등록 해제는 `git ▾ → git difftool 등록 해제` 또는 `/unregister-git`.
+
+**③ TortoiseGit에 등록** — TortoiseGit Settings → Diff Viewer → **Advanced** 탭에서 `Add...`로 확장자(`.tpml`, `.xml`, `.json`)별 등록:
+
+```
+"D:\50. Utility\Compare\artifact\AnyCPURelease\TextCompare.exe" /dl %bname /dr %yname /e /u /wl %base %mine
+```
+
+실행 파일 경로는 `BuildAll.bat`(Release)가 생성하는 고정 배포 산출물 `artifact\AnyCPURelease\`를 쓴다 — 재빌드해도 같은 자리에 갱신되므로 등록 경로가 깨지지 않는다. merge 도구 등록의 제약 등 상세는 [git 연동 문서](01.%20Doc/09-git-연동.md)의 "TortoiseGit 연동" 섹션 참고.
+
+### 명령줄 옵션
+
+```
+TextCompare.exe [옵션] [<left> <right>]
+```
+
+| 옵션 | 동작 |
+|---|---|
+| `/dl <label>` | 왼쪽 제목 라벨(경로 대신 표시) |
+| `/dr <label>` | 오른쪽 제목 라벨 |
+| `/e` | `Esc` 한 번으로 창 닫기 |
+| `/wl`, `/wr` | 왼쪽/오른쪽 읽기 전용(편집·저장 차단) |
+| `/u` | 최근 목록에 추가 안 함(WinMerge 호환용) |
+| `/register-git` | git 전역 difftool로 등록 후 종료 |
+| `/unregister-git` | 등록 해제 후 종료 |
+
+옵션은 `/dl`·`-dl` 두 접두 모두 인식하며 대소문자를 구분하지 않는다. 종료 코드는 0=차이 없음, 1=차이 있음, 2=오류(WinMerge 관례, git의 `difftool.trustExitCode`와 호환).
+
 ### 단축키
 
 | 단축키 | 동작 |
@@ -60,6 +147,7 @@ Visual Studio 2019 이상(또는 해당 MSBuild)과 .NET Framework 4.8 개발자
 | `Ctrl+S` | 저장 |
 | `Alt+↑` | 이전 차이로 이동 |
 | `Alt+↓` | 다음 차이로 이동 |
+| `Esc` | 창 닫기 (`/e` 옵션으로 실행된 경우만) |
 
 ## 문서
 
@@ -75,6 +163,8 @@ Visual Studio 2019 이상(또는 해당 MSBuild)과 .NET Framework 4.8 개발자
 - [UI 레이어](01.%20Doc/04-UI-레이어.md)
 - [데이터 흐름](01.%20Doc/05-데이터-흐름.md)
 - [빌드 및 테스트](01.%20Doc/06-빌드-및-테스트.md)
+- [git 연동](01.%20Doc/09-git-연동.md)
+- [부록: 정규식 입문 (제외 필터용)](01.%20Doc/08-부록-정규식-입문.md)
 
 ### 외부 라이브러리
 
