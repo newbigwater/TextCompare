@@ -4,6 +4,7 @@ using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using TextCompare.Alignment;
+using TextCompare.Core;
 using TextCompare.Intraline;
 
 namespace TextCompare.Controls
@@ -21,6 +22,8 @@ namespace TextCompare.Controls
         public static readonly Color OnlyColor = Color.FromArgb(253, 200, 160);
         public static readonly Color GhostColor = Color.FromArgb(224, 224, 224);
         public static readonly Color IntralineColor = Color.FromArgb(245, 212, 0);
+        /// <summary>제외 필터(MaskMatch)가 비교에서 무시한 구간의 배경색(DiffPaneControl.MaskedColor와 동일 값).</summary>
+        public static readonly Color MaskedColor = Color.FromArgb(211, 211, 211);
 
         private const int WM_SETREDRAW = 0x000B;
 
@@ -46,12 +49,18 @@ namespace TextCompare.Controls
                 {
                     AlignedRow row = correspondingRows[lineIndex];
                     bool isGhost = isLeft ? row.IsLeftGhost : row.IsRightGhost;
+                    TextSpan[] mask = isGhost ? null : (isLeft ? row.LeftMaskSpans : row.RightMaskSpans);
 
-                    Color color;
+                    Color color = Color.Empty;
+                    bool hasRowColor = true;
                     if (isGhost) color = GhostColor;
                     else if (row.Kind == RowKind.Changed) color = ChangedColor;
                     else if (row.Kind == RowKind.LeftOnly || row.Kind == RowKind.RightOnly) color = OnlyColor;
-                    else continue; // Same 실라인은 기본 배경 유지
+                    else hasRowColor = false; // Same 실라인은 기본 배경 유지
+
+                    // Same 실라인이라도 마스크 구간(비교 제외로 인해 같아진 부분)은 회색으로 칠해야 하므로
+                    // 행 배경색이 없고 마스크도 없을 때만 건너뛴다.
+                    if (!hasRowColor && mask == null) continue;
 
                     int charStart = box.GetFirstCharIndexFromLine(lineIndex);
                     if (charStart < 0) continue;
@@ -62,17 +71,35 @@ namespace TextCompare.Controls
                     int length = Math.Max(0, charEnd - charStart);
                     if (length == 0) continue;
 
-                    box.Select(charStart, length);
-                    box.SelectionBackColor = color;
+                    if (hasRowColor)
+                    {
+                        box.Select(charStart, length);
+                        box.SelectionBackColor = color;
+                    }
+
+                    // 제외 필터(MaskMatch)가 비교에서 무시한 구간을 회색으로 표시한다.
+                    if (mask != null)
+                    {
+                        string maskedText = isLeft ? row.LeftText : row.RightText;
+                        foreach (TextSpan m in mask)
+                        {
+                            int maskLength = Math.Min(m.Length, (maskedText == null ? 0 : maskedText.Length) - m.Start);
+                            if (maskLength <= 0) continue;
+
+                            box.Select(charStart + m.Start, maskLength);
+                            box.SelectionBackColor = MaskedColor;
+                        }
+                    }
 
                     // Changed 라인은 배경색 위에 실제로 달라진 부분만 문자 단위로 한 번 더 덧칠해
                     // WinMerge의 상세 비교 창처럼 어디가 다른지 정확히 짚어준다.
+                    // 마스크 구간은 클리핑되어 IsDifferent=false가 되므로 회색 위에 노랑이 덮이지 않는다.
                     if (!isGhost && row.Kind == RowKind.Changed)
                     {
                         string text = isLeft ? row.LeftText : row.RightText;
                         List<CharSpan> spans = isLeft
-                            ? IntralineDiffer.ComputeLeftSpans(row.LeftText, row.RightText)
-                            : IntralineDiffer.ComputeRightSpans(row.LeftText, row.RightText);
+                            ? IntralineDiffer.ComputeLeftSpans(row.LeftText, row.RightText, row.LeftMaskSpans)
+                            : IntralineDiffer.ComputeRightSpans(row.LeftText, row.RightText, row.RightMaskSpans);
 
                         foreach (CharSpan span in spans)
                         {

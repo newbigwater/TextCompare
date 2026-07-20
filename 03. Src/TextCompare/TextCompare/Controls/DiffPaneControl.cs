@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
 using TextCompare.Alignment;
+using TextCompare.Core;
 using TextCompare.Document;
 using TextCompare.Intraline;
 
@@ -24,6 +25,8 @@ namespace TextCompare.Controls
         private static readonly Color OnlyColor = Color.FromArgb(253, 200, 160);
         private static readonly Color GhostColor = Color.FromArgb(224, 224, 224);
         private static readonly Color IntralineColor = Color.FromArgb(245, 212, 0);
+        /// <summary>제외 필터(MaskMatch)가 비교에서 무시한 구간의 배경색. GhostColor(224)보다 살짝 짙어 구분된다.</summary>
+        private static readonly Color MaskedColor = Color.FromArgb(211, 211, 211);
         private static readonly Color SelectedBorderColor = Color.FromArgb(255, 140, 0);
         private static readonly Color GutterColor = Color.FromArgb(90, 90, 90);
         private static readonly Color GutterSeparatorColor = Color.FromArgb(200, 200, 200);
@@ -216,6 +219,14 @@ namespace TextCompare.Controls
             {
                 int textX = _gutterWidth + GutterPadding - _horizontalOffset;
 
+                // 제외 필터(MaskMatch) 구간을 텍스트보다 먼저 회색으로 깔아준다. Changed 행의 intraline 강조는
+                // 마스크 구간과 겹치지 않게 클리핑되므로(IntralineDiffer.ClipMask) 회색 위에 노랑이 덮이지 않는다.
+                TextSpan[] masks = _side == PaneSide.Left ? row.LeftMaskSpans : row.RightMaskSpans;
+                if (masks != null)
+                {
+                    DrawMaskBackgrounds(g, text, masks, textX, y);
+                }
+
                 if (row.Kind == RowKind.Changed)
                 {
                     DrawIntralineHighlighted(g, row, text, textX, y);
@@ -237,13 +248,40 @@ namespace TextCompare.Controls
             }
         }
 
+        private void DrawMaskBackgrounds(Graphics g, string text, TextSpan[] masks, int textX, int y)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+
+            using (SolidBrush brush = new SolidBrush(MaskedColor))
+            {
+                foreach (TextSpan mask in masks)
+                {
+                    int start = Math.Min(mask.Start, text.Length);
+                    int length = Math.Min(mask.Length, text.Length - start);
+                    if (length <= 0) continue;
+
+                    int x = textX + MeasureTextWidth(g, text.Substring(0, start));
+                    int width = MeasureTextWidth(g, text.Substring(start, length));
+                    g.FillRectangle(brush, x, y, width, RowHeight);
+                }
+            }
+        }
+
+        private static int MeasureTextWidth(Graphics g, string part)
+        {
+            if (part.Length == 0) return 0;
+            return TextRenderer.MeasureText(g, part, MonoFont, new Size(int.MaxValue, RowHeight),
+                TextFormatFlags.NoPadding | TextFormatFlags.SingleLine).Width;
+        }
+
         private void DrawIntralineHighlighted(Graphics g, AlignedRow row, string text, int textX, int y)
         {
             if (string.IsNullOrEmpty(text)) return;
 
+            TextSpan[] mask = _side == PaneSide.Left ? row.LeftMaskSpans : row.RightMaskSpans;
             List<CharSpan> spans = _side == PaneSide.Left
-                ? IntralineDiffer.ComputeLeftSpans(row.LeftText, row.RightText)
-                : IntralineDiffer.ComputeRightSpans(row.LeftText, row.RightText);
+                ? IntralineDiffer.ComputeLeftSpans(row.LeftText, row.RightText, mask)
+                : IntralineDiffer.ComputeRightSpans(row.LeftText, row.RightText, mask);
 
             int x = textX;
             foreach (CharSpan span in spans)

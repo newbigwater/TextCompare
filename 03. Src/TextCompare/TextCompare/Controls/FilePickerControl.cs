@@ -13,6 +13,13 @@ namespace TextCompare.Controls
 
         public event EventHandler CompareRequested;
         public event EventHandler ExcludeFilterEditRequested;
+        public event EventHandler GitCompareWithHeadRequested;
+        public event EventHandler GitRegisterRequested;
+        public event EventHandler GitUnregisterRequested;
+
+        // 라벨 표시 모드일 때 실제 경로를 보관한다(텍스트박스에는 라벨이 표시됨).
+        private string _leftPathOverride;
+        private string _rightPathOverride;
 
         public FilePickerControl()
         {
@@ -37,14 +44,36 @@ namespace TextCompare.Controls
             if (ExcludeFilterEditRequested != null) ExcludeFilterEditRequested(this, EventArgs.Empty);
         }
 
+        private void GitButton_Click(object sender, EventArgs e)
+        {
+            _gitMenu.Show(_gitButton, new Point(0, _gitButton.Height));
+        }
+
+        private void GitCompareHeadItem_Click(object sender, EventArgs e)
+        {
+            if (GitCompareWithHeadRequested != null) GitCompareWithHeadRequested(this, EventArgs.Empty);
+        }
+
+        private void GitRegisterItem_Click(object sender, EventArgs e)
+        {
+            if (GitRegisterRequested != null) GitRegisterRequested(this, EventArgs.Empty);
+        }
+
+        private void GitUnregisterItem_Click(object sender, EventArgs e)
+        {
+            if (GitUnregisterRequested != null) GitUnregisterRequested(this, EventArgs.Empty);
+        }
+
         private void LeftBrowse_Click(object sender, EventArgs e)
         {
-            BrowseFor(_leftBox);
+            string selected = BrowseFor(LeftPath);
+            if (selected != null) LeftPath = selected; // 프로퍼티 경유로 라벨 표시 모드도 해제
         }
 
         private void RightBrowse_Click(object sender, EventArgs e)
         {
-            BrowseFor(_rightBox);
+            string selected = BrowseFor(RightPath);
+            if (selected != null) RightPath = selected;
         }
 
         private void CompareButton_Click(object sender, EventArgs e)
@@ -54,14 +83,58 @@ namespace TextCompare.Controls
 
         public string LeftPath
         {
-            get { return _leftBox.Text; }
-            set { _leftBox.Text = value; }
+            get { return _leftPathOverride ?? _leftBox.Text; }
+            set
+            {
+                _leftPathOverride = null;
+                _leftBox.ReadOnly = false;
+                _leftBox.Text = value;
+            }
         }
 
         public string RightPath
         {
-            get { return _rightBox.Text; }
-            set { _rightBox.Text = value; }
+            get { return _rightPathOverride ?? _rightBox.Text; }
+            set
+            {
+                _rightPathOverride = null;
+                _rightBox.ReadOnly = false;
+                _rightBox.Text = value;
+            }
+        }
+
+        /// <summary>현재 라벨 표시 모드일 때의 좌측 라벨(없으면 null).</summary>
+        public string LeftLabel
+        {
+            get { return _leftPathOverride != null ? _leftBox.Text : null; }
+        }
+
+        /// <summary>현재 라벨 표시 모드일 때의 우측 라벨(없으면 null).</summary>
+        public string RightLabel
+        {
+            get { return _rightPathOverride != null ? _rightBox.Text : null; }
+        }
+
+        /// <summary>
+        /// 비교 대상 경로를 지정한다. displayLabel이 있으면 텍스트박스에는 라벨을 표시하고
+        /// 실제 경로는 감춘다(git difftool의 임시 경로 은닉용). 라벨 모드의 텍스트박스는 읽기 전용이 되며,
+        /// 이후 사용자가 찾아보기/드롭/직접 입력으로 경로를 바꾸면 자동으로 일반 모드로 돌아온다.
+        /// </summary>
+        public void SetSource(bool isLeft, string path, string displayLabel)
+        {
+            TextBox box = isLeft ? _leftBox : _rightBox;
+
+            if (string.IsNullOrEmpty(displayLabel))
+            {
+                if (isLeft) LeftPath = path;
+                else RightPath = path;
+                return;
+            }
+
+            if (isLeft) _leftPathOverride = path;
+            else _rightPathOverride = path;
+            box.Text = displayLabel;
+            box.ReadOnly = true;
         }
 
         public bool IgnoreCase
@@ -88,6 +161,7 @@ namespace TextCompare.Controls
             _leftBrowse.Location = new Point(rightEdge - _leftBrowse.Width, 8);
             _rightBrowse.Location = new Point(rightEdge - _rightBrowse.Width, 36);
             _compareButton.Location = new Point(rightEdge - _compareButton.Width, 64);
+            _gitButton.Location = new Point(_compareButton.Left - margin - _gitButton.Width, 64);
 
             _leftBox.Width = Math.Max(40, _leftBrowse.Left - margin - _leftBox.Left);
             _rightBox.Width = Math.Max(40, _rightBrowse.Left - margin - _rightBox.Left);
@@ -117,21 +191,18 @@ namespace TextCompare.Controls
             else LeftPath = files[0];
         }
 
-        private static void BrowseFor(TextBox target)
+        private static string BrowseFor(string currentPath)
         {
             using (OpenFileDialog dialog = new OpenFileDialog())
             {
                 dialog.Filter = "모든 파일 (*.*)|*.*";
                 dialog.CheckFileExists = true;
-                if (!string.IsNullOrEmpty(target.Text) && System.IO.File.Exists(target.Text))
+                if (!string.IsNullOrEmpty(currentPath) && System.IO.File.Exists(currentPath))
                 {
-                    dialog.InitialDirectory = System.IO.Path.GetDirectoryName(target.Text);
+                    dialog.InitialDirectory = System.IO.Path.GetDirectoryName(currentPath);
                 }
 
-                if (dialog.ShowDialog() == DialogResult.OK)
-                {
-                    target.Text = dialog.FileName;
-                }
+                return dialog.ShowDialog() == DialogResult.OK ? dialog.FileName : null;
             }
         }
     }

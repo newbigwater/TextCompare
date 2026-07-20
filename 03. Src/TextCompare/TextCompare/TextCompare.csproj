@@ -76,13 +76,19 @@
       <DesignTimeSharedInput>True</DesignTimeSharedInput>
     </Compile>
     <Compile Include="Properties\ExcludeFilterSettingsAdapter.cs" />
+    <Compile Include="Cli\CommandLineOptions.cs" />
+    <Compile Include="Git\GitPaths.cs" />
+    <Compile Include="Git\GitService.cs" />
+    <Compile Include="Git\GitTempFileManager.cs" />
     <Compile Include="Core\DiffOptions.cs" />
     <Compile Include="Core\DiffChange.cs" />
     <Compile Include="Core\MyersDiff.cs" />
     <Compile Include="Core\LineHasher.cs" />
     <Compile Include="Core\LineSplitter.cs" />
+    <Compile Include="Core\ExcludeFilterMode.cs" />
     <Compile Include="Core\ExcludeFilterPattern.cs" />
     <Compile Include="Core\ExcludeFilterSet.cs" />
+    <Compile Include="Core\TextSpan.cs" />
     <Compile Include="Alignment\RowKind.cs" />
     <Compile Include="Alignment\AlignedRow.cs" />
     <Compile Include="Alignment\DocumentAligner.cs" />
